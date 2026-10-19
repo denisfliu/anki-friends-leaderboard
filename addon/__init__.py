@@ -13,11 +13,11 @@ from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarn
 
 from . import client, home, stats, updater, window
 
-VERSION = "0.5.2"
+VERSION = "0.6.0"
 RETRY_MS = 10_000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.
-HISTORY_VERSION = 1
+HISTORY_VERSION = 2  # 2: learning/young/mature/relearning and added cards
 ADDON = __name__
 
 _busy = False

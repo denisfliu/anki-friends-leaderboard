@@ -12,6 +12,9 @@ SEASON_DAYS = 14
 DEFAULT_SEASON_START = "2026-10-19"  # a Monday; admins can move it in group settings
 LEAGUE_DAY_SECONDS = 5 * 60  # a day counts as studied with at least 5 minutes
 MEDALS = ("gold", "silver", "bronze")
+# The groups of Anki's Reviews graph, plus cards added.
+BREAKDOWN = ("learn", "young", "mature", "relearn", "added")
+SUMMED = ("reviews", "seconds", "again") + BREAKDOWN
 
 
 def standings(board: dict, today: datetime.date, start=None, end=None) -> dict:
@@ -24,7 +27,7 @@ def standings(board: dict, today: datetime.date, start=None, end=None) -> dict:
     for p in players:
         days = daily.get(p["id"], {})
         if start is None:
-            totals = {k: _num(p.get(k)) for k in ("reviews", "seconds", "again")}
+            totals = {k: _num(p.get(k)) for k in SUMMED}
         else:
             totals = _sum(days, start, end or today)
         people.append(
@@ -37,6 +40,7 @@ def standings(board: dict, today: datetime.date, start=None, end=None) -> dict:
                 "secPerCard": _sec_per_card(totals),
                 "streak": _streak(p, today),
                 "past31": int(_sum(days, past31, today)["reviews"]),
+                **{k: int(totals[k]) for k in BREAKDOWN},
                 "updated": p.get("updated", ""),
             }
         )
@@ -181,7 +185,7 @@ def _daily_by_player(board):
 
 
 def _sum(days, start, end):
-    totals = {"reviews": 0.0, "seconds": 0.0, "again": 0.0}
+    totals = {k: 0.0 for k in SUMMED}
     for date, d in days.items():
         if start <= date <= end:
             for k in totals:

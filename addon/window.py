@@ -355,7 +355,22 @@ PAGE = r"""
   body.night-mode .error, body.nightMode .error, body.night_mode .error, html.night-mode body .error { color: #f2b8b5; }
   [hidden] { display: none !important; }
 
-  .chart { border: 1px solid var(--line); border-radius: 8px; padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; }
+  .groups { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; }
+  .groups span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .g-learn { background: var(--s1); } .g-young { background: var(--s2); }
+  .g-mature { background: var(--s3); } .g-relearn { background: var(--s4); }
+  .bars { display: flex; flex-direction: column; gap: 10px; position: relative; }
+  .bar-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 64px; align-items: center; gap: 10px; }
+  .bar-row .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-row.you .who { font-weight: 650; }
+  .bar-row .total { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .track { display: flex; gap: 2px; height: 16px; }
+  .seg-bar { height: 16px; min-width: 2px; cursor: default; }
+  .seg-bar:last-child { border-radius: 0 4px 4px 0; }
+  .seg-bar:hover, .seg-bar:focus { filter: brightness(1.15); outline: none; }
+
+  .chart { position: relative; border: 1px solid var(--line); border-radius: 8px; padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; }
   .chart-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   .chart-head h3 { margin: 0; font-size: 14px; font-weight: 650; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; }
@@ -382,6 +397,7 @@ PAGE = r"""
 <div class="wrap">
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-board" aria-selected="true" onclick="lb.tab('board')">Leaderboard</button>
+    <button class="tab" role="tab" id="tab-breakdown" aria-selected="false" onclick="lb.tab('breakdown')">Breakdown</button>
     <button class="tab" role="tab" id="tab-league" aria-selected="false" onclick="lb.tab('league')">League</button>
     <span class="spacer"></span>
     <span class="status" id="status">Loading…</span>
@@ -389,8 +405,7 @@ PAGE = r"""
     <button class="btn" onclick="pycmd('refresh')">Refresh</button>
   </div>
 
-  <section id="panel-board">
-    <div style="display:flex;flex-direction:column;gap:14px">
+  <section id="range-block" style="display:flex;flex-direction:column;gap:14px">
       <div class="seg" role="group" aria-label="Date range" id="ranges">
         <button data-key="today">Today</button>
         <button data-key="week">Week</button>
@@ -406,6 +421,7 @@ PAGE = r"""
       </div>
       <div class="row">
         <span class="caption" id="caption"></span>
+        <span class="row" id="rankby">
         <label for="metric">Rank by</label>
         <select id="metric" onchange="lb.sortBy('board', this.value)">
           <option value="reviews">Reviews</option>
@@ -415,7 +431,12 @@ PAGE = r"""
           <option value="past31">Past 31 days</option>
           <option value="retention">Retention</option>
         </select>
+        </span>
       </div>
+  </section>
+
+  <section id="panel-board">
+    <div style="display:flex;flex-direction:column;gap:14px">
       <table class="lb">
         <thead><tr>
           <th class="l">#</th><th class="l">Name</th>
@@ -446,6 +467,35 @@ PAGE = r"""
     </div>
   </section>
 
+  <section id="panel-breakdown" hidden>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <table class="lb">
+        <thead><tr>
+          <th class="l">#</th><th class="l">Name</th>
+          <th data-sort="reviews"><button>Reviews</button></th>
+          <th data-sort="learn"><button>Learning</button></th>
+          <th data-sort="young"><button>Young</button></th>
+          <th data-sort="mature"><button>Mature</button></th>
+          <th data-sort="relearn"><button>Relearning</button></th>
+          <th data-sort="added"><button>Added</button></th>
+        </tr></thead>
+        <tbody id="breakdown-rows"></tbody>
+      </table>
+      <section class="chart" aria-labelledby="mix-title">
+        <div class="chart-head"><h3 id="mix-title">Answers by kind</h3><span class="caption" id="mix-caption"></span></div>
+        <div class="groups" aria-hidden="true">
+          <span><i class="swatch g-learn"></i>Learning</span>
+          <span><i class="swatch g-young"></i>Young</span>
+          <span><i class="swatch g-mature"></i>Mature</span>
+          <span><i class="swatch g-relearn"></i>Relearning</span>
+        </div>
+        <div class="bars" id="bars"></div>
+        <div class="tip" id="mix-tip" hidden></div>
+      </section>
+      <p class="note">These match Anki's Reviews graph. Learning is a new card's first steps, Young and Mature are reviews of cards with intervals under or over 21 days, and Relearning is a forgotten card going back through its steps. Added counts cards created.</p>
+    </div>
+  </section>
+
   <section id="panel-league" hidden>
     <div style="display:flex;flex-direction:column;gap:14px">
       <div class="season"><h2 id="season-title"></h2><span class="caption" id="season-dates"></span><b id="season-left"></b></div>
@@ -472,7 +522,13 @@ PAGE = r"""
 const lb = (() => {
   let view = null;
   let hover = null;
-  const sort = { board: "reviews", league: "xp" };
+  const sort = { board: "reviews", breakdown: "reviews", league: "xp" };
+  const GROUPS = [
+    { key: "learn", label: "Learning", cls: "g-learn" },
+    { key: "young", label: "Young", cls: "g-young" },
+    { key: "mature", label: "Mature", cls: "g-mature" },
+    { key: "relearn", label: "Relearning", cls: "g-relearn" },
+  ];
   const SLOTS = 8;
   const NS = "http://www.w3.org/2000/svg";
   const $ = (id) => document.getElementById(id);
@@ -762,6 +818,84 @@ const lb = (() => {
     $("chart-toggle").textContent = box.hidden ? "Show as table" : "Hide table";
   }
 
+  // ---- breakdown ---------------------------------------------------------
+
+  function drawBreakdown() {
+    const body = $("breakdown-rows");
+    body.replaceChildren();
+    const rows = sorted(view.people, sort.breakdown);
+    const main = (k) => (sort.breakdown === k ? "main" : "");
+    rows.forEach((p, i) => {
+      const tr = document.createElement("tr");
+      if (p.id === view.me) tr.className = "you";
+      tr.append(
+        td(i + 1, "rank l"), td(p.id === view.me ? p.name + " (you)" : p.name, "name l"),
+        td(fmt(p.reviews), main("reviews")),
+        ...GROUPS.map((g) => td(fmt(p[g.key]), main(g.key))),
+        td(fmt(p.added), main("added")),
+      );
+      body.append(tr);
+    });
+    markHeaders("breakdown", sort.breakdown);
+
+    // One stacked bar per person, lengths on a shared scale.
+    $("mix-caption").textContent = view.range.caption;
+    const bars = $("bars");
+    bars.replaceChildren();
+    const max = Math.max(1, ...rows.map((p) => p.reviews));
+    rows.forEach((p) => {
+      const row = document.createElement("div");
+      row.className = "bar-row" + (p.id === view.me ? " you" : "");
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = p.id === view.me ? p.name + " (you)" : p.name;
+      const track = document.createElement("div");
+      track.className = "track";
+      track.style.width = Math.max(0, (p.reviews / max) * 100) + "%";
+      GROUPS.forEach((g) => {
+        const n = p[g.key];
+        if (!n) return;
+        const seg = document.createElement("span");
+        seg.className = "seg-bar " + g.cls;
+        seg.style.flex = n + " 1 0";
+        seg.tabIndex = 0;
+        const pct = p.reviews ? Math.round((100 * n) / p.reviews) : 0;
+        const text = `${g.label}: ${fmt(n)} (${pct}%)`;
+        seg.setAttribute("aria-label", `${p.name}, ${text}`);
+        const show = () => {
+          const tip = $("mix-tip");
+          tip.replaceChildren();
+          const v = document.createElement("b");
+          v.textContent = fmt(n) + " ";
+          const l = document.createElement("span");
+          l.className = "who";
+          l.textContent = `${g.label}, ${pct}% of ${p.id === view.me ? "your" : p.name + "'s"} answers`;
+          tip.append(v, l);
+          tip.hidden = false;
+          const box = seg.getBoundingClientRect(), host = bars.parentElement.getBoundingClientRect();
+          tip.style.left = Math.min(host.width - 240, Math.max(0, box.left - host.left)) + "px";
+          tip.style.top = box.bottom - host.top + 6 + "px";
+        };
+        seg.addEventListener("pointerenter", show);
+        seg.addEventListener("focus", show);
+        seg.addEventListener("pointerleave", () => ($("mix-tip").hidden = true));
+        seg.addEventListener("blur", () => ($("mix-tip").hidden = true));
+        track.append(seg);
+      });
+      const total = document.createElement("span");
+      total.className = "total";
+      total.textContent = fmt(p.reviews);
+      row.append(who, track, total);
+      bars.append(row);
+    });
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "Nobody has joined yet.";
+      bars.append(empty);
+    }
+  }
+
   // ---- league ------------------------------------------------------------
 
   function drawLeague() {
@@ -822,6 +956,7 @@ const lb = (() => {
     $("pin").textContent = v.pinned ? "Pinned to home screen" : "Pin to home screen";
     drawBoard();
     drawChart();
+    drawBreakdown();
     drawLeague();
   }
 
@@ -835,10 +970,12 @@ const lb = (() => {
   }
 
   function tab(name) {
-    ["board", "league"].forEach((t) => {
+    ["board", "breakdown", "league"].forEach((t) => {
       $("tab-" + t).setAttribute("aria-selected", String(t === name));
       $("panel-" + t).hidden = t !== name;
     });
+    $("range-block").hidden = name === "league";
+    $("rankby").hidden = name !== "board";
     if (name === "board" && view) drawChart();
   }
 
@@ -849,6 +986,8 @@ const lb = (() => {
       drawBoard();
       drawChart();
       if (view.pinned) pycmd("pin:on:" + key);
+    } else if (panel === "breakdown") {
+      drawBreakdown();
     } else {
       drawLeague();
     }
@@ -873,7 +1012,7 @@ const lb = (() => {
       pycmd("range:" + b.dataset.key);
     });
   });
-  ["board", "league"].forEach((panel) => {
+  ["board", "breakdown", "league"].forEach((panel) => {
     document.querySelectorAll(`#panel-${panel} th[data-sort] button`).forEach((btn) => {
       btn.addEventListener("click", () => sortBy(panel, btn.parentElement.dataset.sort));
     });
