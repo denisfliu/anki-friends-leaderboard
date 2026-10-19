@@ -15,7 +15,6 @@ from . import ranking, stats, window
 
 ADDON = __name__.split(".")[0]
 CHECK_EVERY = datetime.timedelta(minutes=10)
-TOP = 5
 OPEN_CMD = "friends_lb:open"
 METRIC_LABELS = {
     "reviews": "Reviews",
@@ -79,8 +78,8 @@ def _widget(cfg) -> str:
         st = ranking.standings(cache["board"], today, start, end)
         body = _table(_sorted(st["people"], metric), st["me"], metric)
     return f"""
-<div style="max-width:560px;margin:18px auto 0;text-align:left;font-size:13px">
-  <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+<div style="max-width:720px;margin:18px auto 0;text-align:left;font-size:13px">
+  <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">
     <b style="font-size:14px">Friends Leaderboard</b>
     <span style="opacity:.75;flex:1">{html.escape(caption)}</span>
     <a href="#" onclick="pycmd('{OPEN_CMD}');return false;">Open</a>
@@ -89,33 +88,43 @@ def _widget(cfg) -> str:
 </div>"""
 
 
+# The same columns as the window's Leaderboard tab, in the same order.
+COLUMNS = ["reviews", "minutes", "secPerCard", "streak", "past31", "retention"]
+BORDER = "var(--border, rgba(128,128,128,.3))"
+
+
 def _table(people, me, metric) -> str:
-    shown = people[:TOP]
-    mine = next((i for i, p in enumerate(people) if p["id"] == me), None)
-    if mine is not None and mine >= TOP:
-        shown = people[: TOP - 1] + [people[mine]]
+    cell = "padding:6px 8px;border-top:1px solid " + BORDER + ";"
+    num = cell + "text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;"
+    head = (
+        "<tr style='opacity:.75;font-size:12px'>"
+        "<th style='text-align:left;padding:0 8px 6px 0'>#</th>"
+        "<th style='text-align:left;padding:0 8px 6px'>Name</th>"
+        + "".join(
+            f"<th style='text-align:right;padding:0 8px 6px;white-space:nowrap;"
+            f"{'opacity:1;' if c == metric else ''}'>{html.escape(METRIC_LABELS[c])}</th>"
+            for c in COLUMNS
+        )
+        + "</tr>"
+    )
     rows = []
-    for p in shown:
-        rank = people.index(p) + 1
+    for rank, p in enumerate(people, 1):
         you = p["id"] == me
+        bg = "background:rgba(42,120,214,.13);" if you else ""
         name = html.escape(p["name"]) + (" (you)" if you else "")
-        style = "font-weight:650;" if you else ""
         rows.append(
-            f"<tr style='{style}'><td style='opacity:.75;padding:4px 8px 4px 0'>{rank}</td>"
-            f"<td style='padding:4px 8px;width:100%'>{name}</td>"
-            f"<td style='padding:4px 0 4px 8px;text-align:right;white-space:nowrap;"
-            f"font-variant-numeric:tabular-nums'>{_value(p, metric)}</td></tr>"
+            f"<tr style='{bg}'>"
+            f"<td style='{cell}padding-left:0;opacity:.75'>{rank}</td>"
+            f"<td style='{cell}width:100%;{'font-weight:650;' if you else ''}'>{name}</td>"
+            + "".join(
+                f"<td style='{num}{'font-weight:650;' if c == metric else ''}'>{_value(p, c)}</td>"
+                for c in COLUMNS
+            )
+            + "</tr>"
         )
     if not rows:
-        rows.append("<tr><td style='opacity:.75;padding:4px 0'>Nobody has joined yet.</td></tr>")
-    label = html.escape(METRIC_LABELS[metric])
-    return (
-        "<table style='width:100%;border-collapse:collapse'>"
-        f"<tr style='opacity:.75;font-size:12px'><th></th><th style='text-align:left;padding:0 8px'>Name</th>"
-        f"<th style='text-align:right'>{label}</th></tr>"
-        + "".join(rows)
-        + "</table>"
-    )
+        rows.append(f"<tr><td colspan='8' style='{cell}opacity:.75'>Nobody has joined yet.</td></tr>")
+    return "<table style='width:100%;border-collapse:collapse'>" + head + "".join(rows) + "</table>"
 
 
 def _value(p, metric) -> str:
@@ -123,7 +132,7 @@ def _value(p, metric) -> str:
     if metric in ("secPerCard", "retention") and not p.get("reviews"):
         return "–"
     if metric == "secPerCard":
-        return f"{v:.1f}s"
+        return f"{v:.1f}"
     if metric == "retention":
         return f"{v:.1f}%"
     return f"{int(round(v)):,}"
