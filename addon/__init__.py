@@ -11,9 +11,9 @@ from aqt import gui_hooks, mw
 from aqt.qt import QAction, QMenu, qconnect
 from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarning, tooltip
 
-from . import client, stats, updater, window
+from . import client, home, stats, updater, window
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 RETRY_MS = 10_000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.
@@ -103,6 +103,7 @@ def upload(manual: bool = False, blocking: bool = False) -> None:
                 showWarning(f"Your stats didn't upload.\n\n{e}")
         else:
             mark_uploaded()
+            home.mark_stale()
             if manual:
                 tooltip("Your stats are uploaded.")
         if retry_soon:
@@ -282,10 +283,10 @@ _menu = None
 
 def _rebuild_menu() -> None:
     global _menu
-    if _menu is None:
-        _menu = QMenu("Friends Leaderboard", mw)
-        mw.form.menuTools.addMenu(_menu)
-    _menu.clear()
+    if _menu is not None:
+        mw.form.menuTools.removeAction(_menu.menuAction())
+    _menu = QMenu("Friends Leaderboard", mw)
+    mw.form.menuTools.addMenu(_menu)
     items = [
         ("Show leaderboard", show_board),
         ("Upload my stats now", lambda: upload(manual=True)),
@@ -294,6 +295,19 @@ def _rebuild_menu() -> None:
     ]
     for label, action in items:
         _add(_menu, label, action)
+    pin = QAction("Show on home screen", mw)
+    pin.setCheckable(True)
+    pin.setChecked(bool(_config().get("home_pin")))
+    qconnect(pin.toggled, _set_home_pin)
+    _menu.addAction(pin)
+
+    def sync_pin():
+        # The window's pin button changes the same setting.
+        pin.blockSignals(True)
+        pin.setChecked(bool(_config().get("home_pin")))
+        pin.blockSignals(False)
+
+    qconnect(_menu.aboutToShow, sync_pin)
     if _config().get("admin"):
         admin = _menu.addMenu("Admin")
         for label, action in (
@@ -307,6 +321,16 @@ def _rebuild_menu() -> None:
     version.setEnabled(False)
     _menu.addSeparator()
     _menu.addAction(version)
+
+
+def _set_home_pin(on: bool) -> None:
+    cfg = _config()
+    cfg["home_pin"] = bool(on)
+    cfg.setdefault("home_range", ["today", None, None])
+    cfg.setdefault("home_metric", "reviews")
+    _save(cfg)
+    if mw.state == "deckBrowser":
+        mw.deckBrowser.refresh()
 
 
 def _add(menu, label, action) -> None:
@@ -342,6 +366,7 @@ def _learn_admin() -> None:
 
 
 _rebuild_menu()
+home.setup(show_board)
 gui_hooks.profile_did_open.append(_on_profile_open)
 gui_hooks.sync_did_finish.append(lambda: upload())
 gui_hooks.profile_will_close.append(lambda: upload(blocking=True))

@@ -34,6 +34,7 @@ def standings(board: dict, today: datetime.date, start=None, end=None) -> dict:
                 "reviews": int(totals["reviews"]),
                 "minutes": round(totals["seconds"] / 60, 1),
                 "retention": _retention(totals),
+                "secPerCard": _sec_per_card(totals),
                 "streak": _streak(p, today),
                 "past31": int(_sum(days, past31, today)["reviews"]),
                 "updated": p.get("updated", ""),
@@ -75,6 +76,49 @@ def league(board: dict, today: datetime.date) -> dict:
         "rows": _season_rows(players, daily, start, end, today),
         "medals": medals,
     }
+
+
+def chart(board: dict, start: datetime.date, end: datetime.date, unit: str) -> dict:
+    """Per-person series for start..end in buckets of a day, week or month.
+
+    Colors follow join order (the players list order), never rank, so a
+    person keeps their color whatever the range or sort.
+    """
+    buckets = _buckets(start, end, unit)
+    daily = _daily_by_player(board)
+    series = []
+    for slot, p in enumerate(board.get("players", [])):
+        days = daily.get(p["id"], {})
+        values = {"reviews": [], "minutes": [], "secPerCard": [], "retention": []}
+        for b_start, b_end, _ in buckets:
+            t = _sum(days, b_start, b_end)
+            values["reviews"].append(int(t["reviews"]))
+            values["minutes"].append(round(t["seconds"] / 60, 1))
+            values["secPerCard"].append(_sec_per_card(t) if t["reviews"] else None)
+            values["retention"].append(_retention(t) if t["reviews"] else None)
+        series.append({"id": p["id"], "name": p["name"], "slot": slot, "values": values})
+    return {"unit": unit, "labels": [label for _, _, label in buckets], "series": series}
+
+
+def _buckets(start, end, unit):
+    out = []
+    if unit == "day":
+        d = start
+        while d <= end:
+            out.append((d, d, f"{d:%b} {d.day}"))
+            d += DAY
+    elif unit == "week":
+        d = start - start.weekday() * DAY
+        while d <= end:
+            out.append((max(d, start), min(d + 6 * DAY, end), f"{d:%b} {d.day}"))
+            d += 7 * DAY
+    else:
+        d = start.replace(day=1)
+        while d <= end:
+            nxt = (d.replace(day=28) + 4 * DAY).replace(day=1)
+            out.append((max(d, start), min(nxt - DAY, end), f"{d:%b} '{d:%y}"))
+            d = nxt
+    return out
 
 
 def oldest_needed(today: datetime.date, settings: dict, start=None) -> datetime.date:
@@ -148,6 +192,11 @@ def _sum(days, start, end):
 def _retention(totals) -> float:
     reviews = totals["reviews"]
     return round(100 * (reviews - totals["again"]) / reviews, 1) if reviews else 0.0
+
+
+def _sec_per_card(totals) -> float:
+    reviews = totals["reviews"]
+    return round(totals["seconds"] / reviews, 1) if reviews else 0.0
 
 
 def _streak(p, today) -> int:
