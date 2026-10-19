@@ -93,13 +93,14 @@ def chart(board: dict, start: datetime.date, end: datetime.date, unit: str) -> d
     series = []
     for slot, p in enumerate(board.get("players", [])):
         days = daily.get(p["id"], {})
-        values = {"reviews": [], "minutes": [], "secPerCard": [], "retention": []}
+        values = {"reviews": [], "minutes": [], "secPerCard": [], "retention": [], "added": []}
         for b_start, b_end, _ in buckets:
             t = _sum(days, b_start, b_end)
             values["reviews"].append(int(t["reviews"]))
             values["minutes"].append(round(t["seconds"] / 60, 1))
             values["secPerCard"].append(_sec_per_card(t) if t["reviews"] else None)
             values["retention"].append(_retention(t) if t["reviews"] else None)
+            values["added"].append(int(t["added"]))
         series.append({"id": p["id"], "name": p["name"], "slot": slot, "values": values})
     return {"unit": unit, "labels": [label for _, _, label in buckets], "series": series}
 

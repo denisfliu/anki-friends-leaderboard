@@ -430,6 +430,7 @@ PAGE = r"""
           <option value="streak">Streak</option>
           <option value="past31">Past 31 days</option>
           <option value="retention">Retention</option>
+          <option value="added">Cards added</option>
         </select>
         </span>
       </div>
@@ -446,6 +447,7 @@ PAGE = r"""
           <th data-sort="streak"><button>Streak</button></th>
           <th data-sort="past31"><button>Past 31 days</button></th>
           <th data-sort="retention"><button>Retention</button></th>
+          <th data-sort="added"><button>Added</button></th>
         </tr></thead>
         <tbody id="board-rows"></tbody>
       </table>
@@ -538,6 +540,7 @@ const lb = (() => {
     minutes: { label: "Minutes", fmt: (v) => fmt(Math.round(v)) },
     secPerCard: { label: "Seconds per card", fmt: (v) => v.toFixed(1) + "s" },
     retention: { label: "Retention", fmt: (v) => v.toFixed(1) + "%" },
+    added: { label: "Cards added", fmt: (v) => fmt(v) },
   };
 
   function td(text, cls) {
@@ -571,7 +574,7 @@ const lb = (() => {
     if (!rows.length) {
       const tr = document.createElement("tr");
       const cell = td("Nobody has joined yet.", "empty");
-      cell.colSpan = 8;
+      cell.colSpan = 9;
       tr.append(cell);
       body.append(tr);
     }
@@ -587,6 +590,7 @@ const lb = (() => {
         td(fmt(p.streak), main("streak")),
         td(fmt(p.past31), main("past31")),
         td(p.reviews ? p.retention.toFixed(1) + "%" : "–", main("retention")),
+        td(fmt(p.added), main("added")),
       );
       body.append(tr);
     });

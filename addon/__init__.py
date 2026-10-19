@@ -13,7 +13,7 @@ from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarn
 
 from . import client, home, stats, updater, window
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 RETRY_MS = 10_000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.

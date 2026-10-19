@@ -23,6 +23,7 @@ METRIC_LABELS = {
     "streak": "Streak",
     "past31": "Past 31 days",
     "retention": "Retention",
+    "added": "Added",
 }
 
 _open_board = None
@@ -89,7 +90,7 @@ def _widget(cfg) -> str:
 
 
 # The same columns as the window's Leaderboard tab, in the same order.
-COLUMNS = ["reviews", "minutes", "secPerCard", "streak", "past31", "retention"]
+COLUMNS = ["reviews", "minutes", "secPerCard", "streak", "past31", "retention", "added"]
 BORDER = "var(--border, rgba(128,128,128,.3))"
 
 
@@ -123,7 +124,7 @@ def _table(people, me, metric) -> str:
             + "</tr>"
         )
     if not rows:
-        rows.append(f"<tr><td colspan='8' style='{cell}opacity:.75'>Nobody has joined yet.</td></tr>")
+        rows.append(f"<tr><td colspan='9' style='{cell}opacity:.75'>Nobody has joined yet.</td></tr>")
     return "<table style='width:100%;border-collapse:collapse'>" + head + "".join(rows) + "</table>"
 
 
