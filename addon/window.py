@@ -84,7 +84,7 @@ def fetch_board(need: datetime.date, on_done) -> None:
         _save_cache()
         on_done(board, None)
 
-    mw.taskman.run_in_background(lambda: client.call(url, payload), done)
+    client.in_background(lambda: client.call(url, payload), done)
 
 
 def is_fetching() -> bool:
@@ -943,6 +943,7 @@ const lb = (() => {
   // ---- shell -------------------------------------------------------------
 
   function render(v) {
+    clearTimeout(slowTimer);
     const first = view === null;
     view = v;
     if (first && v.pinned && v.pinnedMetric) sort.board = v.pinnedMetric;
@@ -964,12 +965,21 @@ const lb = (() => {
     drawLeague();
   }
 
+  let slowTimer = null;
+
   function loading(on) {
-    if (on) $("status").textContent = view ? "Checking for new results…" : "Loading…";
+    clearTimeout(slowTimer);
+    if (!on) return;
+    $("status").classList.remove("error");
+    $("status").textContent = view ? "Checking for new results…" : "Loading…";
+    slowTimer = setTimeout(() => {
+      $("status").textContent = "The server is slow right now. Still trying…";
+    }, 10000);
   }
 
   function error(message) {
-    $("status").textContent = message;
+    clearTimeout(slowTimer);
+    $("status").textContent = view ? "Couldn't check for new results. " + message : message;
     $("status").classList.add("error");
   }
 

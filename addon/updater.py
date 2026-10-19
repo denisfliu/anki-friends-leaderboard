@@ -17,6 +17,8 @@ import requests
 from aqt import mw
 from aqt.utils import showInfo, tooltip
 
+from . import client
+
 REPO = "denisfliu/anki-friends-leaderboard"
 PACKAGE = "friends_leaderboard"
 CHECK_EVERY_S = 24 * 3600
@@ -100,7 +102,7 @@ def check(version: str, save, manual: bool) -> None:
             period=8000,
         )
 
-    mw.taskman.run_in_background(work, done)
+    client.in_background(work, done)
 
 
 def _verify(data: bytes) -> None:

@@ -13,7 +13,7 @@ from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarn
 
 from . import client, home, stats, updater, window
 
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 RETRY_MS = 10_000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.
@@ -115,7 +115,7 @@ def upload(manual: bool = False, blocking: bool = False) -> None:
             upload()
 
     _busy = True
-    mw.taskman.run_in_background(send, on_done)
+    client.in_background(send, on_done)
 
 
 def join() -> None:
@@ -166,7 +166,7 @@ def join() -> None:
 
     tooltip("Joining the leaderboard…")
     payload = {"action": "join", "name": name.strip(), "invite": invite.strip()}
-    mw.taskman.run_in_background(
+    client.in_background(
         lambda: client.call(cfg["server_url"], payload), on_done
     )
 
@@ -195,7 +195,7 @@ def _admin_call(payload: dict, then) -> None:
             return
         then(body)
 
-    mw.taskman.run_in_background(lambda: client.call(cfg["server_url"], payload), on_done)
+    client.in_background(lambda: client.call(cfg["server_url"], payload), on_done)
 
 
 def _pick_player(prompt: str, then) -> None:
@@ -362,7 +362,7 @@ def _learn_admin() -> None:
         _rebuild_menu()
 
     payload = {"action": "info", "token": cfg["token"]}
-    mw.taskman.run_in_background(lambda: client.call(cfg["server_url"], payload), on_done)
+    client.in_background(lambda: client.call(cfg["server_url"], payload), on_done)
 
 
 _rebuild_menu()

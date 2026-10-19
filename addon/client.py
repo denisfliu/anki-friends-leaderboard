@@ -5,9 +5,12 @@ import time
 
 import requests
 
-# Apps Script usually answers in 1 to 3 seconds, but a cold start or a slow
-# network can take much longer, so wait generously and retry what's safe.
+# Apps Script usually answers in 1 to 5 seconds, but a cold start or a slow
+# network can take much longer. Uploads run unattended, so they wait longer;
+# reads have someone watching, so they give up sooner and retry.
 TIMEOUT = 60
+READ_TIMEOUT = 25
+READS = {"ping", "info", "board", "feed"}
 # Actions that can be sent twice without harm (uploads overwrite the same rows).
 SAFE_TO_RETRY = {"ping", "info", "board", "upload", "feed"}
 RETRIES = 2
@@ -35,8 +38,28 @@ class ServerError(Exception):
         super().__init__(f"{message} ({detail})" if detail else message)
 
 
-def call(url: str, payload: dict, timeout: float = TIMEOUT) -> dict:
-    retries = RETRIES if payload.get("action") in SAFE_TO_RETRY else 0
+def in_background(task, on_done) -> None:
+    """Run a network task off the main thread.
+
+    Anki runs background tasks on one shared thread by default, the same one
+    its own collection work uses, so a slow request would hold up syncing and
+    every other request queued behind it. Network calls don't touch the
+    collection, so they go on Anki's network threads instead. That option
+    arrived in Anki 23.10; older versions ran every task in parallel anyway.
+    """
+    from aqt import mw
+
+    try:
+        mw.taskman.run_in_background(task, on_done, uses_collection=False)
+    except TypeError:
+        mw.taskman.run_in_background(task, on_done)
+
+
+def call(url: str, payload: dict, timeout=None) -> dict:
+    action = payload.get("action")
+    if timeout is None:
+        timeout = READ_TIMEOUT if action in READS else TIMEOUT
+    retries = RETRIES if action in SAFE_TO_RETRY else 0
     for attempt in range(retries + 1):
         try:
             return _call_once(url, payload, timeout)
