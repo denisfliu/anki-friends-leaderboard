@@ -401,9 +401,9 @@ PAGE = r"""
   .controls #rankby { flex-wrap: nowrap; }
   .controls .menubtn { min-width: 0; }
   .rank-badge { display: inline-flex; width: 22px; height: 22px; margin: -4px 0; align-items: center; justify-content: center; border-radius: 11px; font-size: 12px; font-weight: 700; }
+  .rank-num { display: inline-flex; width: 22px; justify-content: center; font-variant-numeric: tabular-nums; }
   .rank-badge.sm { width: 16px; height: 16px; border-radius: 8px; font-size: 10px; margin-left: 6px; vertical-align: 1px; }
   .lb tr.idle td, .lb tr.idle td.main, .bar-row.idle .who, .bar-row.idle .total { color: var(--muted); font-weight: 400; }
-  .gap { display: block; margin-top: 1px; font-size: 12px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
   .lb tr.pickable { cursor: pointer; }
   .lb tr.pickable:hover td { background: var(--track); }
   .lb tr.comparing td:first-child { box-shadow: inset 3px 0 0 var(--s2); }
@@ -711,23 +711,6 @@ const lb = (() => {
     return b;
   }
 
-  const GAP_UNITS = { minutes: " minutes", streak: " days", xp: " XP", added: " cards" };
-
-  // "2,019 behind tableauvole": the distance to the next person up in the
-  // ranking's natural order (or the lead over second place).
-  function gapText(rows, key) {
-    const order = sorted(rows.filter((r) => value(r, key) !== null), key, defaultDir(key));
-    const i = order.findIndex((r) => r.id === view.me);
-    if (i < 0 || order.length < 2) return "";
-    const other = order[i === 0 ? 1 : i - 1];
-    const diff = Math.abs(value(order[i], key) - value(other, key));
-    if (diff < (key === "secPerCard" || key === "retention" ? 0.05 : 0.5)) return "tied with " + other.name;
-    const ahead = i === 0;
-    if (key === "secPerCard") return diff.toFixed(1) + "s " + (ahead ? "faster than " : "slower than ") + other.name;
-    if (key === "retention") return diff.toFixed(1) + " points " + (ahead ? "ahead of " : "behind ") + other.name;
-    return fmt(Math.round(diff)) + (GAP_UNITS[key] || "") + (ahead ? " ahead of " : " behind ") + other.name;
-  }
-
   function td(text, cls) {
     const el = document.createElement("td");
     if (cls) el.className = cls;
@@ -735,25 +718,25 @@ const lb = (() => {
     return el;
   }
 
-  function nameCell(row, medals, sortState, medalKey, what, gap) {
+  function nameCell(row, medals, sortState, medalKey, what) {
     const cell = td(row.id === view.me ? row.name + " (you)" : row.name, "name l");
     const k = medals[row.id];
     const big = sortState.key === medalKey && sortState.dir === "desc";
     if (k !== undefined && !big) cell.append(badge(k, true, what));
-    if (gap) {
-      const g = document.createElement("span");
-      g.className = "gap";
-      g.textContent = gap;
-      cell.append(g);
-    }
     return cell;
   }
 
   function rankCell(row, i, medals, sortState, medalKey, what) {
     const cell = td("", "rank l");
     const k = medals[row.id];
-    if (k !== undefined && sortState.key === medalKey && sortState.dir === "desc") cell.append(badge(k, false, what));
-    else cell.textContent = i + 1;
+    if (k !== undefined && sortState.key === medalKey && sortState.dir === "desc") {
+      cell.append(badge(k, false, what));
+    } else {
+      const n = document.createElement("span");
+      n.className = "rank-num";
+      n.textContent = i + 1;
+      cell.append(n);
+    }
     return cell;
   }
 
@@ -792,7 +775,6 @@ const lb = (() => {
       body.append(tr);
     }
     const medals = medalsBy(view.people, "reviews");
-    const gap = gapText(view.people, st.key);
     const cols = ["reviews", "minutes", "secPerCard", "streak", "past31", "retention", "added"];
     rows.forEach((p, i) => {
       const tr = document.createElement("tr");
@@ -804,7 +786,7 @@ const lb = (() => {
       }
       tr.append(
         rankCell(p, i, medals, st, "reviews", "reviews"),
-        nameCell(p, medals, st, "reviews", "reviews", p.id === view.me ? gap : ""),
+        nameCell(p, medals, st, "reviews", "reviews"),
         ...cols.map((c) => td(cellText(p, c), st.key === c ? "main" : "")),
       );
       body.append(tr);
@@ -1219,7 +1201,7 @@ const lb = (() => {
       tr.className = [p.id === view.me ? "you" : "", p.reviews ? "" : "idle"].join(" ").trim();
       tr.append(
         rankCell(p, i, medals, st, "reviews", "reviews"),
-        nameCell(p, medals, st, "reviews", "reviews", ""),
+        nameCell(p, medals, st, "reviews", "reviews"),
         td(fmt(p.reviews), st.key === "reviews" ? "main" : ""),
         ...GROUPS.map((g) => td(cellText(p, g.key), st.key === g.key ? "main" : "")),
         td(cellText(p, "added"), st.key === "added" ? "main" : ""),
@@ -1311,7 +1293,6 @@ const lb = (() => {
     const anyMedals = lg.rows.some((r) => MEDAL.some((m) => (r.medals || {})[m]));
     $("medals-th").hidden = !anyMedals;
     const medals = medalsBy(lg.rows, "xp");
-    const gap = gapText(lg.rows, "xp");
     sorted(lg.rows, st.key, st.dir).forEach((r, i) => {
       const tr = document.createElement("tr");
       tr.className = [r.id === view.me ? "you" : "", r.reviews ? "" : "idle"].join(" ").trim();
@@ -1328,7 +1309,7 @@ const lb = (() => {
       });
       tr.append(
         rankCell(r, i, medals, st, "xp", "XP"),
-        nameCell(r, medals, st, "xp", "XP", r.id === view.me ? gap : ""),
+        nameCell(r, medals, st, "xp", "XP"),
         td(fmt(r.xp), st.key === "xp" ? "main" : ""),
         td(fmt(r.reviews), st.key === "reviews" ? "main" : ""),
         td(fmt(Math.round(r.minutes)), st.key === "minutes" ? "main" : ""),

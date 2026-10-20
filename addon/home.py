@@ -141,7 +141,9 @@ def _table(people, me, metric) -> str:
         name = html.escape(q["name"]) + (" (you)" if you else "")
         if k is not None and not big:
             name += badge(k, True)
-        rank_html = badge(k, False) if (k is not None and big) else str(rank)
+        rank_html = badge(k, False) if (k is not None and big) else (
+            f"<span style='display:inline-flex;width:22px;justify-content:center'>{rank}</span>"
+        )
         rows.append(
             f"<tr style='{row_style}'>"
             f"<td style='{cell}padding-left:0;{'' if k is not None and big else 'opacity:.75;'}'>{rank_html}</td>"
