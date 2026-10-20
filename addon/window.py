@@ -239,21 +239,30 @@ def range_dates(key, a=None, b=None, *, today):
     """(start, end, caption) for a range key; start None means all time."""
     if key == "week":
         start = today - today.weekday() * DAY
-        return start, today, f"This week: {_short(start)} to {_short(start + 6 * DAY)}"
+        return start, today, _span(start, start + 6 * DAY)
     if key == "month":
         return today.replace(day=1), today, today.strftime("%B %Y")
     if key == "year":
         return today.replace(month=1, day=1), today, today.strftime("%Y")
     if key == "all":
-        return None, None, "All time, including reviews from before joining"
+        return None, None, ""
     if key == "custom":
         start, end = _parse(a) or today, _parse(b) or today
         if start > end:
             start, end = end, start
         end = min(end, today)
         start = min(start, end)
-        return start, end, f"{_short(start)} to {_short(end)}"
-    return today, today, f"Today, {_short(today)}"
+        return start, end, _span(start, end)
+    return today, today, _short(today)
+
+
+def _span(start, end) -> str:
+    """"Oct 19 to 25", "Oct 26 to Nov 1", "Dec 29, 2025 to Jan 4, 2026"."""
+    if start.year != end.year:
+        return f"{start:%b} {start.day}, {start.year} to {end:%b} {end.day}, {end.year}"
+    if start.month != end.month:
+        return f"{start:%b} {start.day} to {end:%b} {end.day}"
+    return f"{start:%b} {start.day} to {end.day}"
 
 
 def chart_window(key, start, end, today):
@@ -354,7 +363,14 @@ PAGE = r"""
   .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   .tabs .btn { align-self: center; margin-left: 6px; }
   .seg { display: flex; padding: 3px; gap: 2px; border-radius: 8px; background: var(--track); }
-  .seg button { flex: 1 1 0; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+  .seg button { flex: none; height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .range-caption { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .controls #rankby { flex-wrap: nowrap; }
+  .controls .menubtn { min-width: 0; }
+  .rank-badge { display: inline-flex; width: 22px; height: 22px; margin: -4px 0; align-items: center; justify-content: center; border-radius: 11px; font-size: 12px; font-weight: 700; }
+  .rank-badge.sm { width: 16px; height: 16px; border-radius: 8px; font-size: 10px; margin-left: 6px; vertical-align: 1px; }
+  .lb tr.idle td { opacity: .45; }
   .seg button[aria-pressed="true"] { background: var(--bg); color: var(--text); font-weight: 600; }
   .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .caption { flex: 1; color: var(--muted); }
@@ -437,13 +453,20 @@ PAGE = r"""
   </div>
 
   <section id="range-block" style="display:flex;flex-direction:column;gap:14px">
-      <div class="seg" role="group" aria-label="Date range" id="ranges">
-        <button data-key="today">Today</button>
-        <button data-key="week">Week</button>
-        <button data-key="month">Month</button>
-        <button data-key="year">Year</button>
-        <button data-key="all">All time</button>
-        <button data-key="custom">Custom…</button>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Date range" id="ranges">
+          <button data-key="today">Today</button>
+          <button data-key="week">Week</button>
+          <button data-key="month">Month</button>
+          <button data-key="year">Year</button>
+          <button data-key="all">All time</button>
+          <button data-key="custom">Custom…</button>
+        </div>
+        <span class="range-caption" id="caption"></span>
+        <span class="row" id="rankby">
+        <span id="metric-label">Rank by</span>
+        <button class="menubtn" id="metric" aria-haspopup="menu" aria-expanded="false" aria-labelledby="metric-label metric" onclick="lb.openMenu()"></button>
+        </span>
       </div>
       <div class="row custom" id="custom">
         <label for="from">From</label>
@@ -451,13 +474,6 @@ PAGE = r"""
         <label for="to">To</label>
         <input type="text" class="datefield" id="to" placeholder="YYYY-MM-DD" autocomplete="off" spellcheck="false">
         <button class="btn" onclick="lb.applyCustom()">Show</button>
-      </div>
-      <div class="row">
-        <span class="caption" id="caption"></span>
-        <span class="row" id="rankby">
-        <span id="metric-label">Rank by</span>
-        <button class="menubtn" id="metric" aria-haspopup="menu" aria-expanded="false" aria-labelledby="metric-label metric" onclick="lb.openMenu()"></button>
-        </span>
       </div>
   </section>
 
@@ -603,11 +619,30 @@ const lb = (() => {
       body.append(tr);
     }
     const main = (k) => (sort.board === k ? "main" : "");
+    // Medals always go to the top three by reviews in this range, whatever
+    // the table is sorted by.
+    const medal = {};
+    sorted(view.people.filter((p) => p.reviews > 0), "reviews").slice(0, 3)
+      .forEach((p, k) => { medal[p.id] = k; });
+    const MEDAL = ["gold", "silver", "bronze"];
+    const badge = (k, small) => {
+      const b = document.createElement("span");
+      b.className = "rank-badge " + MEDAL[k] + (small ? " sm" : "");
+      b.textContent = k + 1;
+      b.title = ["Most reviews", "Second most reviews", "Third most reviews"][k];
+      return b;
+    };
     rows.forEach((p, i) => {
       const tr = document.createElement("tr");
-      if (p.id === view.me) tr.className = "you";
+      tr.className = [p.id === view.me ? "you" : "", p.reviews ? "" : "idle"].join(" ").trim();
+      const rank = td("", "rank l");
+      const name = td(p.id === view.me ? p.name + " (you)" : p.name, "name l");
+      const k = medal[p.id];
+      if (k !== undefined && sort.board === "reviews") rank.append(badge(k, false));
+      else rank.textContent = i + 1;
+      if (k !== undefined && sort.board !== "reviews") name.append(badge(k, true));
       tr.append(
-        td(i + 1, "rank l"), td(p.id === view.me ? p.name + " (you)" : p.name, "name l"),
+        rank, name,
         td(fmt(p.reviews), main("reviews")),
         td(fmt(Math.round(p.minutes)), main("minutes")),
         td(p.reviews ? p.secPerCard.toFixed(1) : "–", main("secPerCard")),
@@ -619,7 +654,7 @@ const lb = (() => {
       body.append(tr);
     });
     markHeaders("board", sort.board);
-    $("metric").textContent = RANKS.find((r) => r.key === sort.board).label + " ▾";
+    $("metric").textContent = RANKS.find((r) => r.key === sort.board).short + " ▾";
   }
 
   // ---- chart -------------------------------------------------------------
@@ -1044,13 +1079,13 @@ const lb = (() => {
   // ---- in-page calendar and menu ------------------------------------------
 
   const RANKS = [
-    { key: "reviews", label: "Reviews" },
-    { key: "minutes", label: "Minutes" },
-    { key: "secPerCard", label: "Seconds per card (fastest)" },
-    { key: "streak", label: "Streak" },
-    { key: "past31", label: "Past 31 days" },
-    { key: "retention", label: "Retention" },
-    { key: "added", label: "Cards added" },
+    { key: "reviews", label: "Reviews", short: "Reviews" },
+    { key: "minutes", label: "Minutes", short: "Minutes" },
+    { key: "secPerCard", label: "Seconds per card (fastest)", short: "Sec/card" },
+    { key: "streak", label: "Streak", short: "Streak" },
+    { key: "past31", label: "Past 31 days", short: "Past 31 days" },
+    { key: "retention", label: "Retention", short: "Retention" },
+    { key: "added", label: "Cards added", short: "Added" },
   ];
   const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   let calField = null, calMonth = null;
