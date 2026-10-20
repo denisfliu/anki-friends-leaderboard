@@ -405,7 +405,8 @@ PAGE = r"""
   .cal-grid button.today { box-shadow: inset 0 0 0 1px var(--accent); }
   .cal-grid button.picked { background: var(--accent); color: var(--bg); font-weight: 650; }
   .cal-grid button:disabled { color: var(--muted); opacity: .45; cursor: default; }
-  .menubtn { height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; min-width: 120px; text-align: left; }
+  /* Sized to the current label; Anki's own button margin and padding are undone. */
+  .menubtn { height: 30px; margin: 0; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; min-width: 0; width: auto; white-space: nowrap; text-align: left; }
   .menu { display: flex; flex-direction: column; padding: 4px; min-width: 140px; }
   /* Anki styles every <button> (margin, padding, border, shadow, weight);
      menu items undo that so the menu is a compact list. */
@@ -440,7 +441,6 @@ PAGE = r"""
   .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .range-caption { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .controls #rankby { flex-wrap: nowrap; }
-  .controls .menubtn { min-width: 0; }
   .rank-badge { display: inline-flex; width: 22px; height: 22px; margin: -4px 0; align-items: center; justify-content: center; border-radius: 11px; font-size: 12px; font-weight: 700; }
   .rank-num { display: inline-flex; width: 22px; justify-content: center; font-variant-numeric: tabular-nums; }
   .rank-badge.sm { width: 16px; height: 16px; border-radius: 8px; font-size: 10px; margin-left: 6px; vertical-align: 1px; }
