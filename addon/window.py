@@ -134,14 +134,7 @@ class LeaderboardDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.web)
         self.resize(760, 760)
-        # Leave out Anki's default page styles: they restyle <button> (shadow,
-        # rounded corners, margins, a hover gradient, no focus outline), which
-        # turned the tabs and icons into boxed buttons. This page sets all of
-        # its own styles. Older Anki without the option keeps its defaults.
-        try:
-            self.web.stdHtml(PAGE, context=self, default_css=False)
-        except TypeError:
-            self.web.stdHtml(PAGE, context=self)
+        self.web.stdHtml(PAGE, context=self)
         self.load(check=True)
 
     def done(self, result: int) -> None:
