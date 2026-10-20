@@ -9,6 +9,8 @@
 //   sorting rows, moving columns or deleting a tab doesn't break anything.
 // - Running the group (invite code, renames, lost tokens, removing people,
 //   announcements) happens through admin actions from the add-on.
+// - Someone can use several computers. Each gets its own token, and a computer
+//   signed in to the same AnkiWeb account as a player links to that player.
 // - A small post feed and group settings leave room for challenges, update
 //   notices and similar features without new server code.
 //
@@ -20,7 +22,7 @@ const API_VERSION = 1;
 const SERVER_VERSION = '1.0.0';
 
 const TABS = {
-  players: { name: 'Players', core: ['id', 'name', 'admin', 'active', 'joined', 'updated', 'token_hash'] },
+  players: { name: 'Players', core: ['id', 'name', 'admin', 'active', 'joined', 'updated', 'token_hash', 'ankiweb_hash'] },
   daily: { name: 'Daily', core: ['date', 'player', 'name', 'updated'] },
   posts: { name: 'Posts', core: ['id', 'time', 'player', 'name', 'kind', 'data'] },
 };
@@ -36,6 +38,8 @@ const LIMITS = {
   feedRows: 500,
   settingsChars: 8000,
   joinsPerHour: 20,
+  linksPerHour: 30,
+  tokensPerPlayer: 10, // one per computer; the oldest goes when there are more
   uploadGapSeconds: 5,
   postsPerMinute: 10,
 };
@@ -84,6 +88,7 @@ function handle_(raw) {
     const action = String(body.action || '');
     if (action === 'ping') return ok_({});
     if (action === 'join') return join_(body);
+    if (action === 'link') return link_(body);
     const actions = {
       info: info_, board: board_, upload: upload_, rename: rename_, leave: leave_,
       post: post_, feed: feed_, deletePost: deletePost_, admin: admin_,
@@ -114,14 +119,18 @@ function join_(body) {
   const t = table_('players');
   const rows = readRows_(t);
   const token = Utilities.getUuid() + Utilities.getUuid();
+  const account = accountHash_(body.ankiweb);
   const existing = rows.findIndex(r => sameName_(get_(t, r, 'name'), name));
 
   if (existing >= 0) {
-    // A name whose token was cleared (left, or reset by an admin) can be
-    // claimed again, which keeps that person's history.
+    // A name whose tokens were cleared (left, or reset by an admin) can be
+    // claimed again, which keeps that person's history. A name still in use
+    // can be joined from another computer on the same AnkiWeb account.
     const row = rows[existing];
-    if (get_(t, row, 'token_hash')) return err_('name_taken');
-    set_(t, row, { token_hash: hash_(token), active: true, updated: new Date() });
+    const sameAccount = account && account === String(get_(t, row, 'ankiweb_hash'));
+    if (tokenHashes_(t, row).length && !sameAccount) return err_('name_taken');
+    addToken_(t, row, token);
+    set_(t, row, Object.assign({ active: true, updated: new Date() }, account ? { ankiweb_hash: account } : {}));
     writeRows_(t, rows, existing, existing);
     touch_();
     return ok_({ token: token, player: publicPlayer_(t, row) });
@@ -140,10 +149,32 @@ function join_(body) {
     joined: new Date(),
     updated: new Date(),
     token_hash: hash_(token),
+    ankiweb_hash: account,
   });
   appendRows_(t, [row]);
   touch_();
   return ok_({ token: token, player: publicPlayer_(t, row) });
+}
+
+// A computer signed in to the same AnkiWeb account as an active player becomes
+// another computer for that player, without an invite code. The add-on asks
+// after a sync, so the computer's collection is already up to date.
+function link_(body) {
+  const account = accountHash_(body.ankiweb);
+  if (!account) return err_('not_found');
+  if (!countWithin_('links', 3600, LIMITS.linksPerHour)) return err_('slow_down');
+  const t = table_('players');
+  const rows = readRows_(t);
+  const i = rows.findIndex(r =>
+    isActive_(get_(t, r, 'active')) && String(get_(t, r, 'ankiweb_hash')) === account
+  );
+  if (i < 0) return err_('not_found');
+  const token = Utilities.getUuid() + Utilities.getUuid();
+  addToken_(t, rows[i], token);
+  set_(t, rows[i], { updated: new Date() });
+  writeRows_(t, rows, i, i);
+  touch_();
+  return ok_({ token: token, player: publicPlayer_(t, rows[i]) });
 }
 
 function info_(body, me) {
@@ -172,7 +203,7 @@ function auth_(token) {
   const t = table_('players');
   const rows = readRows_(t);
   const h = hash_(token);
-  const i = rows.findIndex(r => get_(t, r, 'token_hash') === h);
+  const i = rows.findIndex(r => tokenHashes_(t, r).indexOf(h) >= 0);
   if (i < 0 || !isActive_(get_(t, rows[i], 'active'))) return null;
   const row = rows[i];
   return {
@@ -218,6 +249,9 @@ function upload_(body, me) {
 
   const fields = cleanFields_(Object.assign({}, body.profile, body.totals), TABS.players.core);
   addColumns_(me.t, Object.keys(fields), ignored);
+  // Players who joined before AnkiWeb linking get their account on the next upload.
+  const account = accountHash_(body.ankiweb);
+  if (account) fields.ankiweb_hash = account;
   set_(me.t, me.row, Object.assign(fields, { updated: new Date() }));
   writeRows_(me.t, me.rows, me.i, me.i);
 
@@ -364,8 +398,10 @@ function deletePost_(body, me) {
 //       announcement, latestVersion or seasonStart. inviteCode is only shown
 //       to admins; setting it changes the invite code.
 //   { op: 'player', id, name?, admin?, active?, resetToken? }
-//       resetToken lets that person join again under the same name and keep
-//       their history. active: false hides them and signs them out.
+//       resetToken signs out all of that person's computers and lets them join
+//       again under the same name and keep their history. A reinstalled
+//       computer on their AnkiWeb account links again by itself. active: false
+//       hides them and signs them out.
 //   { op: 'purge', id }
 //       Deletes a player and all of their rows.
 
@@ -589,7 +625,7 @@ function rowObject_(t, row, omit) {
 }
 
 function publicPlayer_(t, row) {
-  const obj = rowObject_(t, row, ['token_hash']);
+  const obj = rowObject_(t, row, ['token_hash', 'ankiweb_hash']);
   obj.id = String(obj.id);
   obj.name = String(obj.name);
   obj.admin = isTrue_(obj.admin);
@@ -677,6 +713,31 @@ function hash_(token) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token, Utilities.Charset.UTF_8)
     .map(b => ((b + 256) % 256).toString(16).padStart(2, '0'))
     .join('');
+}
+
+// A player's token hashes, one per computer, are kept space-separated in one cell.
+function tokenHashes_(t, row) {
+  return String(get_(t, row, 'token_hash') || '').split(/\s+/).filter(Boolean);
+}
+
+function addToken_(t, row, token) {
+  const hashes = tokenHashes_(t, row).concat(hash_(token)).slice(-LIMITS.tokensPerPlayer);
+  set_(t, row, { token_hash: hashes.join(' ') });
+}
+
+// The add-on sends a SHA-256 of the AnkiWeb login email, never the email. It's
+// hashed again with a secret kept in the script properties, so the sheet can't
+// be checked against guessed emails.
+function accountHash_(v) {
+  v = String(v || '');
+  if (!/^[0-9a-f]{64}$/.test(v)) return '';
+  const props = PropertiesService.getScriptProperties();
+  let salt = props.getProperty('ACCOUNT_SALT');
+  if (!salt) {
+    salt = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('ACCOUNT_SALT', salt);
+  }
+  return hash_(salt + v);
 }
 
 function gapSince_(key, seconds) {

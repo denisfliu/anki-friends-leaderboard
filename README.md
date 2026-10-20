@@ -47,8 +47,9 @@ To publish a version: bump `VERSION` in `addon/__init__.py`, commit, then run `.
 
 - Stats upload only after a sync, and only if something changed. Joining and **Upload my stats now** also upload. The board downloads only when someone opens the leaderboard window, and the server sends a tiny "unchanged" answer if nothing is new.
 - Reviews done on a phone count once they sync and desktop Anki opens.
+- Someone with several computers joins once. Any other computer signed in to the same AnkiWeb account joins as them after its next sync, with no invite code. The add-on sends a SHA-256 of the AnkiWeb login email, never the email, and the server hashes it again with a secret before storing it. Someone who doesn't use AnkiWeb can only use one computer, since their computers' stats would overwrite each other.
 - New stats need no server change. A new field from the add-on shows up as a new column.
 - The first person to join is the admin. **Tools → Friends Leaderboard → Admin** shows the invite code, posts announcements, resets someone's sign-in and removes people. The server also supports changing the invite code, renaming people and promoting other admins; those don't have menu items yet.
-- If someone reinstalls and loses their token, an admin resets it (**Admin → Reset someone's sign-in**), and that person joins again with the same name. Their history stays.
+- If someone reinstalls, the add-on joins as them again after a sync if they use AnkiWeb. Otherwise an admin resets their sign-in (**Admin → Reset someone's sign-in**), and that person joins again with the same name. Their history stays.
 - Don't put formulas in the Players, Daily or Posts tabs; the script rewrites those cells. Sorting, moving columns or deleting a tab is fine. Make your own tabs for charts.
 - Google Sheets keeps version history (**File → Version history**) if anything ever needs undoing.

@@ -6,6 +6,7 @@ The board downloads when someone opens the leaderboard window, and the home
 screen checks for changes at most every 10 minutes.
 """
 
+import hashlib
 import time
 
 from aqt import gui_hooks, mw
@@ -14,7 +15,7 @@ from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarn
 
 from . import client, home, stats, updater, window
 
-VERSION = "0.8.9"
+VERSION = "0.9.0"
 RETRY_MS = 10_000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.
@@ -26,6 +27,8 @@ _pending = False
 # Anki runs the close hook first, then syncs, then quits. The upload after
 # that closing sync has to finish before Anki quits, so it waits.
 _closing = False
+# Whether this computer already asked to link through AnkiWeb since Anki opened.
+_link_asked = False
 
 
 def _config() -> dict:
@@ -34,6 +37,16 @@ def _config() -> dict:
 
 def _save(cfg: dict) -> None:
     mw.addonManager.writeConfig(ADDON, cfg)
+
+
+def _ankiweb() -> str:
+    """A SHA-256 of the AnkiWeb login email, or "" when not signed in. The
+    email itself never leaves this computer."""
+    try:
+        user = str(mw.pm.profile.get("syncUser") or "").strip().lower()
+    except Exception:
+        return ""
+    return hashlib.sha256(user.encode("utf-8")).hexdigest() if user else ""
 
 
 def _ready(cfg: dict, manual: bool) -> bool:
@@ -66,7 +79,13 @@ def upload(manual: bool = False, blocking: bool = False) -> None:
     data = stats.collect(mw.col, None if full else stats.HISTORY_DAYS)
     days = data["days"]
     chunks = [days[i : i + stats.CHUNK_DAYS] for i in range(0, len(days), stats.CHUNK_DAYS)]
-    base = {"action": "upload", "token": cfg["token"], "version": VERSION, "totals": data["totals"]}
+    base = {
+        "action": "upload",
+        "token": cfg["token"],
+        "version": VERSION,
+        "totals": data["totals"],
+        "ankiweb": _ankiweb(),
+    }
     payloads = [dict(base, days=chunk) for chunk in chunks] or [dict(base, days=[])]
     url = cfg["server_url"]
 
@@ -154,25 +173,51 @@ def join() -> None:
         except Exception as e:
             showWarning(f"You couldn't join the leaderboard.\n\n{e}")
             return
-        player = body["player"]
-        cfg = _config()
-        cfg["name"] = player["name"]
-        cfg["player_id"] = player["id"]
-        cfg["admin"] = bool(player.get("admin"))
-        cfg["token"] = body["token"]
-        cfg["last_uploaded_marker"] = ""
-        cfg["history_version"] = 0
-        _save(cfg)
-        window.forget_board()
-        _rebuild_menu()
-        tooltip(f"You joined as {player['name']}. Your stats will upload in the background.", period=5000)
-        upload()
+        _signed_in(body, f"You joined as {body['player']['name']}. Your stats will upload in the background.")
 
     tooltip("Joining the leaderboard…")
-    payload = {"action": "join", "name": name.strip(), "invite": invite.strip()}
+    payload = {"action": "join", "name": name.strip(), "invite": invite.strip(), "ankiweb": _ankiweb()}
     client.in_background(
         lambda: client.call(cfg["server_url"], payload), on_done
     )
+
+
+def _signed_in(body: dict, message: str) -> None:
+    player = body["player"]
+    cfg = _config()
+    cfg["name"] = player["name"]
+    cfg["player_id"] = player["id"]
+    cfg["admin"] = bool(player.get("admin"))
+    cfg["token"] = body["token"]
+    cfg["last_uploaded_marker"] = ""
+    cfg["history_version"] = 0
+    _save(cfg)
+    window.forget_board()
+    _rebuild_menu()
+    tooltip(message, period=5000)
+    upload()
+
+
+def _link() -> None:
+    """Joins this computer as the player on the same AnkiWeb account, if there
+    is one. It runs after a sync, so the stats it uploads are up to date."""
+    global _link_asked
+    cfg = _config()
+    account = _ankiweb()
+    if _link_asked or cfg.get("token") or not cfg.get("server_url") or not account:
+        return
+    _link_asked = True
+
+    def on_done(fut):
+        try:
+            body = fut.result()
+        except Exception:
+            return  # nobody on the leaderboard uses this AnkiWeb account
+        if not _config().get("token"):
+            _signed_in(body, f"You're on the leaderboard as {body['player']['name']}.")
+
+    payload = {"action": "link", "ankiweb": account}
+    client.in_background(lambda: client.call(cfg["server_url"], payload), on_done)
 
 
 def show_board() -> None:
@@ -344,6 +389,9 @@ def _add(menu, label, action) -> None:
 
 
 def _on_sync_finished() -> None:
+    if not _closing and not _config().get("token"):
+        _link()
+        return
     upload(blocking=_closing)
 
 
@@ -353,8 +401,9 @@ def _on_profile_close() -> None:
 
 
 def _on_profile_open() -> None:
-    global _closing
+    global _closing, _link_asked
     _closing = False
+    _link_asked = False
     _learn_admin()
     updater.forget_finished_update(_config(), _save)
     updater.maybe_check(_config(), VERSION, _save)

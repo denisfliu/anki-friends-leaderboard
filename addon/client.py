@@ -18,7 +18,7 @@ RETRIES = 2
 ERRORS = {
     "bad_invite": "That invite code doesn't match.",
     "bad_name": "Names must be 1 to 24 characters.",
-    "name_taken": "Someone on the leaderboard already has that name. If it's you, ask the admin to reset your sign-in, then join again.",
+    "name_taken": "Someone on the leaderboard already has that name. If it's you, please sign in to AnkiWeb with the account you use on your other computer and sync. This computer will then join as you.",
     "bad_token": "The server doesn't recognize this computer. Please join again.",
     "group_full": "The leaderboard is full.",
     "busy": "The server is busy. Please try again in a moment.",
