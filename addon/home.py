@@ -10,6 +10,7 @@ import datetime
 import html
 
 from aqt import gui_hooks, mw
+from aqt.theme import theme_manager
 
 from . import ranking, stats, window
 
@@ -94,7 +95,20 @@ COLUMNS = ["reviews", "minutes", "secPerCard", "streak", "past31", "retention", 
 BORDER = "var(--border, rgba(128,128,128,.3))"
 
 
+MEDALS = [("#fbefc8", "#6b4e00"), ("#e9ecf0", "#454b55"), ("#f6e1d0", "#7a4318")]
+MEDALS_DARK = [("#4a3b14", "#f3d27a"), ("#3b3e44", "#d5d9e0"), ("#45301f", "#e9b48a")]
+DETAIL_KEYS = ("learn", "young", "mature", "relearn", "added")
+
+
 def _table(people, me, metric) -> str:
+    """The Leaderboard tab's table: same columns, medals, dimmed rows and
+    highlight for you, in Anki's own home-screen styling."""
+    dark = theme_manager.night_mode
+    you_bg = "#26344d" if dark else "#e8f0fe"
+    muted = "#a8a8b0" if dark else "#5f6368"
+    medal_colors = MEDALS_DARK if dark else MEDALS
+    top = [q["id"] for q in _sorted([q for q in people if q["reviews"] > 0], "reviews")[:3]]
+    big = metric == "reviews"
     cell = "padding:6px 8px;border-top:1px solid " + BORDER + ";"
     num = cell + "text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;"
     head = (
@@ -108,17 +122,32 @@ def _table(people, me, metric) -> str:
         )
         + "</tr>"
     )
+
+    def badge(k, small):
+        bg, fg = medal_colors[k]
+        size = "width:16px;height:16px;font-size:10px;margin-left:6px" if small else "width:22px;height:22px;font-size:12px;margin:-4px 0"
+        return (
+            f"<span style='display:inline-flex;align-items:center;justify-content:center;border-radius:11px;"
+            f"font-weight:700;background:{bg};color:{fg};{size}'>{k + 1}</span>"
+        )
+
     rows = []
-    for rank, p in enumerate(people, 1):
-        you = p["id"] == me
-        bg = "background:rgba(42,120,214,.13);" if you else ""
-        name = html.escape(p["name"]) + (" (you)" if you else "")
+    for rank, q in enumerate(people, 1):
+        you = q["id"] == me
+        idle = not q["reviews"]
+        k = top.index(q["id"]) if q["id"] in top else None
+        row_style = f"background:{you_bg};" if you else ""
+        text_style = f"color:{muted};" if idle else ""
+        name = html.escape(q["name"]) + (" (you)" if you else "")
+        if k is not None and not big:
+            name += badge(k, True)
+        rank_html = badge(k, False) if (k is not None and big) else str(rank)
         rows.append(
-            f"<tr style='{bg}'>"
-            f"<td style='{cell}padding-left:0;opacity:.75'>{rank}</td>"
-            f"<td style='{cell}width:100%;{'font-weight:650;' if you else ''}'>{name}</td>"
+            f"<tr style='{row_style}'>"
+            f"<td style='{cell}padding-left:0;{'' if k is not None and big else 'opacity:.75;'}'>{rank_html}</td>"
+            f"<td style='{cell}{text_style}width:100%;{'font-weight:650;' if you else ''}'>{name}</td>"
             + "".join(
-                f"<td style='{num}{'font-weight:650;' if c == metric else ''}'>{_value(p, c)}</td>"
+                f"<td style='{num}{text_style}{'font-weight:650;' if c == metric and not idle else ''}'>{_value(q, c)}</td>"
                 for c in COLUMNS
             )
             + "</tr>"
@@ -128,10 +157,18 @@ def _table(people, me, metric) -> str:
     return "<table style='width:100%;border-collapse:collapse'>" + head + "".join(rows) + "</table>"
 
 
-def _value(p, metric) -> str:
-    v = p.get(metric, 0)
-    if metric in ("secPerCard", "retention") and not p.get("reviews"):
+def _known(q, metric) -> bool:
+    if metric in ("secPerCard", "retention") and not q.get("reviews"):
+        return False
+    if metric in DETAIL_KEYS and q.get("detailed") is False:
+        return False
+    return True
+
+
+def _value(q, metric) -> str:
+    if not _known(q, metric):
         return "–"
+    v = q.get(metric, 0)
     if metric == "secPerCard":
         return f"{v:.1f}"
     if metric == "retention":
@@ -140,9 +177,13 @@ def _value(p, metric) -> str:
 
 
 def _sorted(people, metric):
+    known = [q for q in people if _known(q, metric)]
+    unknown = sorted((q for q in people if not _known(q, metric)), key=lambda q: q["name"].lower())
     if metric == "secPerCard":
-        return sorted(people, key=lambda p: (0 if p["reviews"] else 1, p["secPerCard"], p["name"].lower()))
-    return sorted(people, key=lambda p: (-p.get(metric, 0), p["name"].lower()))
+        known.sort(key=lambda q: (q["secPerCard"], q["name"].lower()))
+    else:
+        known.sort(key=lambda q: (-q.get(metric, 0), q["name"].lower()))
+    return known + unknown
 
 
 def _maybe_check(cfg) -> None:

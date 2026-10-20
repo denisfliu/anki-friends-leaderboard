@@ -41,6 +41,9 @@ def standings(board: dict, today: datetime.date, start=None, end=None) -> dict:
                 "streak": _streak(p, today),
                 "past31": int(_sum(days, past31, today)["reviews"]),
                 **{k: int(totals[k]) for k in BREAKDOWN},
+                # Add-ons before 0.6.0 don't send the breakdown or cards added,
+                # so their zeros mean "unknown", not zero.
+                "detailed": p.get("learn") not in (None, ""),
                 "updated": p.get("updated", ""),
             }
         )
@@ -93,7 +96,7 @@ def chart(board: dict, start: datetime.date, end: datetime.date, unit: str) -> d
     series = []
     for slot, p in enumerate(board.get("players", [])):
         days = daily.get(p["id"], {})
-        values = {"reviews": [], "minutes": [], "secPerCard": [], "retention": [], "added": []}
+        values = {"reviews": [], "minutes": [], "secPerCard": [], "retention": [], "added": [], "seconds": [], "again": []}
         for b_start, b_end, _ in buckets:
             t = _sum(days, b_start, b_end)
             values["reviews"].append(int(t["reviews"]))
@@ -101,7 +104,9 @@ def chart(board: dict, start: datetime.date, end: datetime.date, unit: str) -> d
             values["secPerCard"].append(_sec_per_card(t) if t["reviews"] else None)
             values["retention"].append(_retention(t) if t["reviews"] else None)
             values["added"].append(int(t["added"]))
-        series.append({"id": p["id"], "name": p["name"], "slot": slot, "values": values})
+            values["seconds"].append(int(t["seconds"]))
+            values["again"].append(int(t["again"]))
+        series.append({"id": p["id"], "name": p["name"], "slot": slot, "values": values, "detailed": p.get("learn") not in (None, "")})
     return {"unit": unit, "labels": [label for _, _, label in buckets], "series": series}
 
 
@@ -163,6 +168,8 @@ def _season_rows(players, daily, start, end, today):
                 "minutes": minutes,
                 "retention": retention,
                 "daysPercent": days_percent,
+                "daysLearned": learned,
+                "daysElapsed": days_over,
             }
         )
     rows.sort(key=lambda r: (-r["xp"], r["name"].lower()))
