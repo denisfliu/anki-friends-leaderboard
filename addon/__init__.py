@@ -1,8 +1,9 @@
 """Friends Leaderboard: a private Anki leaderboard backed by a Google Sheet.
 
-Network use is kept to a minimum. Stats upload only when there are new reviews
-(checked when the profile opens, after a sync and when Anki closes), and the
-board downloads only when someone opens the leaderboard window.
+Network use is kept to a minimum. Stats upload only after a sync (or when
+someone joins or chooses Upload my stats now), and only if something changed.
+The board downloads when someone opens the leaderboard window, and the home
+screen checks for changes at most every 10 minutes.
 """
 
 import time
@@ -13,10 +14,8 @@ from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarn
 
 from . import client, home, stats, updater, window
 
-VERSION = "0.6.6"
+VERSION = "0.7.0"
 RETRY_MS = 10_000
-# After adding cards, upload once things go quiet instead of after each card.
-AFTER_ADDING_MS = 2 * 60 * 1000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.
 HISTORY_VERSION = 2  # 2: learning/young/mature/relearning and added cards
@@ -24,7 +23,9 @@ ADDON = __name__
 
 _busy = False
 _pending = False
-_adding_timer = None
+# Anki runs the close hook first, then syncs, then quits. The upload after
+# that closing sync has to finish before Anki quits, so it waits.
+_closing = False
 
 
 def _config() -> dict:
@@ -69,11 +70,11 @@ def upload(manual: bool = False, blocking: bool = False) -> None:
     payloads = [dict(base, days=chunk) for chunk in chunks] or [dict(base, days=[])]
     url = cfg["server_url"]
 
-    def send(timeout=30):
+    def send(timeout=None, retries=None):
         for i, payload in enumerate(payloads):
             if i:
                 time.sleep(CHUNK_GAP_S)  # the server takes one upload per player every few seconds
-            client.call(url, payload, timeout=timeout)
+            client.call(url, payload, timeout=timeout, retries=retries)
 
     def mark_uploaded():
         cfg = _config()
@@ -83,9 +84,9 @@ def upload(manual: bool = False, blocking: bool = False) -> None:
         _save(cfg)
 
     if blocking:
-        # Anki is closing; don't hold it up for long.
+        # Anki is closing; one quick try so it never hangs for long.
         try:
-            send(timeout=8)
+            send(timeout=8, retries=0)
             mark_uploaded()
         except Exception:
             pass
@@ -342,19 +343,19 @@ def _add(menu, label, action) -> None:
     menu.addAction(item)
 
 
-def _on_note_added(note) -> None:
-    global _adding_timer
-    if _adding_timer is not None:
-        try:
-            _adding_timer.stop()
-        except RuntimeError:  # it already fired and was cleaned up
-            pass
-    _adding_timer = mw.progress.timer(AFTER_ADDING_MS, upload, False)
+def _on_sync_finished() -> None:
+    upload(blocking=_closing)
+
+
+def _on_profile_close() -> None:
+    global _closing
+    _closing = True
 
 
 def _on_profile_open() -> None:
+    global _closing
+    _closing = False
     _learn_admin()
-    upload()
     updater.maybe_check(_config(), VERSION, _save)
 
 
@@ -381,6 +382,5 @@ def _learn_admin() -> None:
 _rebuild_menu()
 home.setup(show_board)
 gui_hooks.profile_did_open.append(_on_profile_open)
-gui_hooks.sync_did_finish.append(lambda: upload())
-gui_hooks.add_cards_did_add_note.append(_on_note_added)
-gui_hooks.profile_will_close.append(lambda: upload(blocking=True))
+gui_hooks.sync_did_finish.append(_on_sync_finished)
+gui_hooks.profile_will_close.append(_on_profile_close)

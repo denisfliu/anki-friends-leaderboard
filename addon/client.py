@@ -55,11 +55,12 @@ def in_background(task, on_done) -> None:
         mw.taskman.run_in_background(task, on_done)
 
 
-def call(url: str, payload: dict, timeout=None) -> dict:
+def call(url: str, payload: dict, timeout=None, retries=None) -> dict:
     action = payload.get("action")
     if timeout is None:
         timeout = READ_TIMEOUT if action in READS else TIMEOUT
-    retries = RETRIES if action in SAFE_TO_RETRY else 0
+    if retries is None:
+        retries = RETRIES if action in SAFE_TO_RETRY else 0
     for attempt in range(retries + 1):
         try:
             return _call_once(url, payload, timeout)
