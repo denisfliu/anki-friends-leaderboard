@@ -544,7 +544,7 @@ PAGE = r"""
     <div style="display:flex;flex-direction:column;gap:14px">
       <table class="lb">
         <thead><tr>
-          <th class="l">#</th><th class="l">Name</th>
+          <th class="l"><span class="rank-num">#</span></th><th class="l">Name</th>
           <th data-sort="reviews" title="Answers given in this range"><button>Reviews</button></th>
           <th data-sort="minutes" title="Time spent answering"><button>Minutes</button></th>
           <th data-sort="secPerCard" title="Average seconds per answer"><button>Sec/card</button></th>
@@ -589,7 +589,7 @@ PAGE = r"""
     <div style="display:flex;flex-direction:column;gap:14px">
       <table class="lb">
         <thead><tr>
-          <th class="l">#</th><th class="l">Name</th>
+          <th class="l"><span class="rank-num">#</span></th><th class="l">Name</th>
           <th data-sort="reviews" title="Answers given in this range"><button>Reviews</button></th>
           <th data-sort="learn" title="A new card's first steps"><button>Learning</button></th>
           <th data-sort="young" title="Reviews of cards with intervals under 21 days"><button>Young</button></th>
@@ -618,7 +618,7 @@ PAGE = r"""
       <div class="season"><h2 id="season-title"></h2><span class="caption" id="season-dates"></span><b id="season-left"></b></div>
       <table class="lb">
         <thead><tr>
-          <th class="l">#</th><th class="l">Name</th>
+          <th class="l"><span class="rank-num">#</span></th><th class="l">Name</th>
           <th data-sort="xp" title="Days studied % × (6 × minutes + 2 × reviews × retention bonus). A day counts with at least 5 minutes."><button>XP</button></th>
           <th data-sort="reviews" title="Answers given this season"><button>Reviews</button></th>
           <th data-sort="minutes" title="Time spent answering this season"><button>Minutes</button></th>

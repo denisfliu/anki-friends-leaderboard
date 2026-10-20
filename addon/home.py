@@ -113,7 +113,7 @@ def _table(people, me, metric) -> str:
     num = cell + "text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;"
     head = (
         "<tr style='opacity:.75;font-size:12px'>"
-        "<th style='text-align:left;padding:0 8px 6px 0'>#</th>"
+        "<th style='text-align:left;padding:0 8px 6px 0'><span style='display:inline-flex;width:22px;justify-content:center'>#</span></th>"
         "<th style='text-align:left;padding:0 8px 6px'>Name</th>"
         + "".join(
             f"<th style='text-align:right;padding:0 8px 6px;white-space:nowrap;"
