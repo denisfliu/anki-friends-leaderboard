@@ -228,8 +228,15 @@ class LeaderboardDialog(QDialog):
             if not check:
                 return
         self.web.eval("lb.loading(true)")
+        before = ((cache or {}).get("since"), (cache or {}).get("lastWrite"))
 
         def on_done(board, error):
+            if error is None:
+                # New results also redraw the table pinned to the home screen.
+                after = cached_board() or {}
+                changed = (after.get("since"), after.get("lastWrite")) != before
+                if changed and mw.addonManager.getConfig(ADDON).get("home_pin") and mw.state == "deckBrowser":
+                    mw.deckBrowser.refresh()
             if _dialog is not self:
                 return
             if error is not None:
