@@ -598,12 +598,7 @@ PAGE = r"""
 
       <section class="chart" aria-labelledby="chart-title">
         <div class="chart-bar">
-          <div class="seg small" role="group" aria-label="Chart type" id="chart-types">
-            <button data-chart="day">Per day</button>
-            <button data-chart="race">Race</button>
-            <button data-chart="avg">You vs average</button>
-            <button data-chart="trend">Trends</button>
-          </div>
+          <button class="menubtn" id="chart-btn" aria-haspopup="menu" aria-expanded="false" onclick="lb.openChartType()"></button>
           <span class="spacer"></span>
           <button class="menubtn" id="show-btn" aria-haspopup="menu" aria-expanded="false" onclick="lb.openShow()"></button>
           <button class="menubtn" id="hl-btn" aria-haspopup="menu" aria-expanded="false" onclick="lb.openHighlight()"></button>
@@ -702,6 +697,12 @@ const lb = (() => {
     added: { label: "Cards added", fmt: (v) => fmt(v) },
   };
   const CHARTABLE = ["reviews", "minutes", "secPerCard", "retention", "added"];
+  const CHART_TYPES = [
+    { key: "day", label: "Per day" },
+    { key: "race", label: "Cumulative" },
+    { key: "avg", label: "You vs average" },
+    { key: "trend", label: "Trends" },
+  ];
   const RANKS = [
     { key: "reviews", label: "Reviews", short: "Reviews" },
     { key: "minutes", label: "Minutes", short: "Minutes" },
@@ -951,7 +952,11 @@ const lb = (() => {
     const on = highlighted();
     const st = styles(on);
 
-    document.querySelectorAll("#chart-types button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.chart === type)));
+    $("chart-btn").textContent = "";
+    const chartLabel = document.createElement("span");
+    chartLabel.className = "muted";
+    chartLabel.textContent = "Chart ";
+    $("chart-btn").append(chartLabel, document.createTextNode(CHART_TYPES.find((t) => t.key === type).label + " ▾"));
     $("show-btn").textContent = "";
     const showLabel = document.createElement("span");
     showLabel.className = "muted";
@@ -1574,6 +1579,10 @@ const lb = (() => {
     }));
   }
 
+  function openChartType() {
+    openMenuFor($("chart-btn"), "Chart", CHART_TYPES.map((t) => ({ label: t.label, checked: t.key === chart.type, onPick: () => setChartType(t.key) })));
+  }
+
   function openHighlight() {
     openMenuFor($("hl-btn"), "Highlight", highlightItems());
   }
@@ -1696,9 +1705,6 @@ const lb = (() => {
       pycmd("range:" + b.dataset.key);
     });
   });
-  document.querySelectorAll("#chart-types button").forEach((b) => {
-    b.addEventListener("click", () => setChartType(b.dataset.chart));
-  });
   ["board", "breakdown", "league"].forEach((panel) => {
     document.querySelectorAll(`#panel-${panel} th[data-sort] button`).forEach((btn) => {
       btn.addEventListener("click", () => sortBy(panel, btn.parentElement.dataset.sort, true));
@@ -1710,7 +1716,7 @@ const lb = (() => {
     resizeTimer = setTimeout(() => view && currentTab === "board" && drawChart(), 100);
   });
 
-  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable, openMenu, openShow, openHighlight, endCompare, setUpdate, clickUpdate };
+  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable, openMenu, openShow, openHighlight, openChartType, endCompare, setUpdate, clickUpdate };
 })();
 </script>
 """
