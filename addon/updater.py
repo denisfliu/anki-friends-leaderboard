@@ -25,6 +25,64 @@ CHECK_EVERY_S = 24 * 3600
 MAX_BYTES = 5 * 1024 * 1024
 
 _checking = False
+_waiting = []  # called with no arguments when a running check finishes
+
+# The running version (set by __init__) and the newest release seen, so the
+# window can show the update icon without waiting for the daily check.
+CURRENT = "0"
+LATEST_EVERY_S = 3600
+_latest = {"version": "", "checked": 0.0}
+
+
+def update_state(cfg: dict) -> dict:
+    """{"state": "none" | "available" | "restart", "version": ...} for the icon."""
+    pending = cfg.get("pending_version") or ""
+    if pending and _newer(pending, CURRENT):
+        return {"state": "restart", "version": pending}
+    latest = _latest["version"] or cfg.get("latest_seen") or ""
+    if latest and _newer(latest, CURRENT):
+        return {"state": "available", "version": latest}
+    return {"state": "none", "version": ""}
+
+
+def forget_finished_update(cfg: dict, save) -> None:
+    """After a restart onto the pending version, stop showing the restart icon."""
+    pending = cfg.get("pending_version")
+    if pending and not _newer(pending, CURRENT):
+        cfg["pending_version"] = ""
+        save(cfg)
+
+
+def refresh_latest(save, on_change) -> None:
+    """Ask GitHub for the newest release at most once an hour."""
+    if _is_dev_copy() or time.time() - _latest["checked"] < LATEST_EVERY_S:
+        return
+    _latest["checked"] = time.time()
+
+    def work():
+        rel = requests.get(
+            f"https://api.github.com/repos/{REPO}/releases/latest",
+            headers={"Accept": "application/vnd.github+json"},
+            timeout=20,
+        )
+        rel.raise_for_status()
+        return str(rel.json().get("tag_name", "")).lstrip("v")
+
+    def done(fut):
+        try:
+            latest = fut.result()
+        except Exception:
+            return
+        if not latest:
+            return
+        _latest["version"] = latest
+        cfg = mw.addonManager.getConfig(PACKAGE)
+        if cfg.get("latest_seen") != latest:
+            cfg["latest_seen"] = latest
+            save(cfg)
+        on_change()
+
+    client.in_background(work, done)
 
 
 def maybe_check(cfg: dict, version: str, save) -> None:
@@ -32,13 +90,16 @@ def maybe_check(cfg: dict, version: str, save) -> None:
         check(version, save, manual=False)
 
 
-def check(version: str, save, manual: bool) -> None:
+def check(version: str, save, manual: bool, on_finish=None) -> None:
     global _checking
+    if on_finish:
+        _waiting.append(on_finish)
     if _checking:
         return
     if _is_dev_copy():
         if manual:
             showInfo("This copy of the add-on is a development copy, so it doesn't update itself.")
+        _finish()
         return
     _checking = True
 
@@ -71,6 +132,12 @@ def check(version: str, save, manual: bool) -> None:
         return latest, path
 
     def done(fut):
+        try:
+            _done(fut)
+        finally:
+            _finish()
+
+    def _done(fut):
         global _checking
         _checking = False
         cfg = mw.addonManager.getConfig(PACKAGE)
@@ -82,6 +149,7 @@ def check(version: str, save, manual: bool) -> None:
             if manual:
                 showInfo(f"Anki couldn't check for leaderboard updates.\n\n{e}")
             return
+        _latest["version"] = latest or _latest["version"]
         if not path:
             if manual:
                 tooltip(f"Friends Leaderboard {version} is the newest version.")
@@ -97,12 +165,27 @@ def check(version: str, save, manual: bool) -> None:
             if manual:
                 showInfo(f"The update to {latest} didn't install. ({getattr(result, 'errmsg', '')})")
             return
+        cfg = mw.addonManager.getConfig(PACKAGE)
+        cfg["pending_version"] = latest
+        save(cfg)
         tooltip(
             f"Friends Leaderboard updated to {latest}. Restart Anki to use the new version.",
             period=8000,
         )
 
     client.in_background(work, done)
+
+
+def _finish() -> None:
+    global _checking
+    _checking = False
+    waiting = list(_waiting)
+    _waiting.clear()
+    for fn in waiting:
+        try:
+            fn()
+        except Exception:
+            pass
 
 
 def _verify(data: bytes) -> None:

@@ -14,7 +14,7 @@ from aqt import mw
 from aqt.qt import QDialog, QVBoxLayout
 from aqt.webview import AnkiWebView
 
-from . import client, ranking, stats
+from . import client, ranking, stats, updater
 
 DAY = datetime.timedelta(days=1)
 ADDON = __name__.split(".")[0]
@@ -160,6 +160,12 @@ class LeaderboardDialog(QDialog):
             if cfg.get("home_pin") and mw.state == "deckBrowser":
                 mw.deckBrowser.refresh()
             self.load()
+        elif cmd == "update":
+            state = updater.update_state(mw.addonManager.getConfig(ADDON))
+            if state["state"] != "available":
+                return
+            self.web.eval(f"lb.setUpdate({json.dumps(dict(state, state='installing'))})")
+            updater.check(updater.CURRENT, self._save_cfg, manual=False, on_finish=self.push_update_state)
         elif cmd.startswith("prefs:"):
             try:
                 prefs = json.loads(cmd[len("prefs:"):])
@@ -180,6 +186,15 @@ class LeaderboardDialog(QDialog):
                 mw.deckBrowser.refresh()
             self.load()
 
+    def _save_cfg(self, cfg: dict) -> None:
+        mw.addonManager.writeConfig(ADDON, cfg)
+
+    def push_update_state(self) -> None:
+        if _dialog is not self:
+            return
+        state = updater.update_state(mw.addonManager.getConfig(ADDON))
+        self.web.eval(f"lb.setUpdate({json.dumps(state)})")
+
     # -- data
 
     def load(self, check: bool = False) -> None:
@@ -187,6 +202,7 @@ class LeaderboardDialog(QDialog):
         changed; otherwise cached data is used when it covers the range."""
         if mw.col is None:
             return
+        updater.refresh_latest(self._save_cfg, self.push_update_state)
         today = stats.anki_today(mw.col)
         cache = cached_board()
         settings = (cache or {}).get("board", {}).get("settings") or {}
@@ -233,6 +249,7 @@ class LeaderboardDialog(QDialog):
             "updated": _updated_text(fetched) if fetched else "",
             "pinned": pinned,
             "prefs": cfg.get("view_prefs") or {},
+            "update": updater.update_state(cfg),
             "pinnedMetric": cfg.get("home_metric") or "reviews",
             "range": {
                 "key": self.range[0],
@@ -390,6 +407,13 @@ PAGE = r"""
   .icon[aria-pressed="true"] { color: var(--accent); }
   .icon[aria-pressed="true"] .pin-head { fill: currentColor; }
   .icon.spinning svg { animation: spin .9s linear infinite; }
+  .icon.update { position: relative; color: var(--accent); }
+  .icon.update::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 3px; background: #e34948; box-shadow: 0 0 0 2px var(--bg); }
+  .icon.update .restart { display: none; }
+  .icon.update.restart .download { display: none; }
+  .icon.update.restart .restart { display: block; }
+  .icon.update.restart { cursor: default; }
+  .icon.update.installing { opacity: .5; cursor: progress; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .btn { height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
   .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
@@ -510,6 +534,7 @@ PAGE = r"""
     <button class="tab" role="tab" id="tab-league" aria-selected="false" onclick="lb.tab('league')">League</button>
     <span class="spacer"></span>
     <span class="status" id="status"></span>
+    <button class="icon update" id="update" hidden onclick="lb.clickUpdate()"><svg class="download" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v9"/><path d="m8 12 4 4 4-4"/></svg><svg class="restart" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v9"/><path d="M5.6 7.1a8 8 0 1 0 12.8 0"/></svg></button>
     <button class="icon" id="refresh" aria-label="Refresh" title="Refresh" onclick="pycmd('refresh')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
     <button class="icon" id="pin" aria-pressed="false" aria-label="Pin to home screen" title="Pin to home screen" onclick="lb.togglePin()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path class="pin-head" d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
   </div>
@@ -1346,6 +1371,7 @@ const lb = (() => {
     const first = view === null;
     view = v;
     if (first) applyPrefs(v.prefs || {}, v.pinned ? v.pinnedMetric : null);
+    if (updateState.state !== "installing") setUpdate(v.update);
     $("status").classList.remove("error");
     $("status").removeAttribute("title");
     $("status").textContent = v.updated ? "Updated " + v.updated : "";
@@ -1367,6 +1393,26 @@ const lb = (() => {
     drawBreakdown();
     drawLeague();
     if (currentTab === "board") drawChart();
+  }
+
+  let updateState = { state: "none" };
+
+  function setUpdate(u) {
+    updateState = u || { state: "none" };
+    const b = $("update");
+    b.hidden = updateState.state === "none";
+    b.classList.toggle("restart", updateState.state === "restart");
+    b.classList.toggle("installing", updateState.state === "installing");
+    const v = updateState.version;
+    const label = updateState.state === "restart" ? `Version ${v} is installed. Restart Anki to start using it.`
+      : updateState.state === "installing" ? `Installing version ${v}…`
+      : `Version ${v} is available. Click to install it.`;
+    b.title = label;
+    b.setAttribute("aria-label", label);
+  }
+
+  function clickUpdate() {
+    if (updateState.state === "available") pycmd("update");
   }
 
   function loading(on) {
@@ -1648,7 +1694,7 @@ const lb = (() => {
     resizeTimer = setTimeout(() => view && currentTab === "board" && drawChart(), 100);
   });
 
-  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable, openMenu, openShow, openHighlight, endCompare };
+  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable, openMenu, openShow, openHighlight, endCompare, setUpdate, clickUpdate };
 })();
 </script>
 """

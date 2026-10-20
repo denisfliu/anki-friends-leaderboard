@@ -14,7 +14,7 @@ from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarn
 
 from . import client, home, stats, updater, window
 
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 RETRY_MS = 10_000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.
@@ -356,6 +356,7 @@ def _on_profile_open() -> None:
     global _closing
     _closing = False
     _learn_admin()
+    updater.forget_finished_update(_config(), _save)
     updater.maybe_check(_config(), VERSION, _save)
 
 
@@ -379,6 +380,7 @@ def _learn_admin() -> None:
     client.in_background(lambda: client.call(cfg["server_url"], payload), on_done)
 
 
+updater.CURRENT = VERSION
 _rebuild_menu()
 home.setup(show_board)
 gui_hooks.profile_did_open.append(_on_profile_open)
