@@ -2,4 +2,4 @@
 
 **name** and **token** are filled in when you join. Please don't share your token.
 
-**last_uploaded_id** tracks the newest review already uploaded, so stats only upload when there's something new.
+**last_uploaded_marker** records the newest review and cards already uploaded, so stats only upload when there's something new.

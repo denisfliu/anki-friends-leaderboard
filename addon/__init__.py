@@ -13,8 +13,10 @@ from aqt.utils import askUser, chooseList, getText, showInfo, showText, showWarn
 
 from . import client, home, stats, updater, window
 
-VERSION = "0.6.5"
+VERSION = "0.6.6"
 RETRY_MS = 10_000
+# After adding cards, upload once things go quiet instead of after each card.
+AFTER_ADDING_MS = 2 * 60 * 1000
 CHUNK_GAP_S = 6
 # Bump to make everyone re-upload their full daily history once.
 HISTORY_VERSION = 2  # 2: learning/young/mature/relearning and added cards
@@ -22,6 +24,7 @@ ADDON = __name__
 
 _busy = False
 _pending = False
+_adding_timer = None
 
 
 def _config() -> dict:
@@ -49,11 +52,11 @@ def upload(manual: bool = False, blocking: bool = False) -> None:
     cfg = _config()
     if not _ready(cfg, manual):
         return
-    latest = stats.latest_review_id(mw.col)
+    latest = stats.change_marker(mw.col)
     # Full daily history goes up once (again whenever HISTORY_VERSION changes,
     # for example when a new daily stat is added). After that, only recent days.
     full = not blocking and cfg.get("history_version", 0) < HISTORY_VERSION
-    if not manual and not full and latest == cfg.get("last_uploaded_id"):
+    if not manual and not full and latest == cfg.get("last_uploaded_marker"):
         return
     if _busy and not blocking:
         _pending = True
@@ -74,7 +77,7 @@ def upload(manual: bool = False, blocking: bool = False) -> None:
 
     def mark_uploaded():
         cfg = _config()
-        cfg["last_uploaded_id"] = latest
+        cfg["last_uploaded_marker"] = latest
         if full:
             cfg["history_version"] = HISTORY_VERSION
         _save(cfg)
@@ -156,7 +159,7 @@ def join() -> None:
         cfg["player_id"] = player["id"]
         cfg["admin"] = bool(player.get("admin"))
         cfg["token"] = body["token"]
-        cfg["last_uploaded_id"] = 0
+        cfg["last_uploaded_marker"] = ""
         cfg["history_version"] = 0
         _save(cfg)
         window.forget_board()
@@ -339,6 +342,16 @@ def _add(menu, label, action) -> None:
     menu.addAction(item)
 
 
+def _on_note_added(note) -> None:
+    global _adding_timer
+    if _adding_timer is not None:
+        try:
+            _adding_timer.stop()
+        except RuntimeError:  # it already fired and was cleaned up
+            pass
+    _adding_timer = mw.progress.timer(AFTER_ADDING_MS, upload, False)
+
+
 def _on_profile_open() -> None:
     _learn_admin()
     upload()
@@ -369,4 +382,5 @@ _rebuild_menu()
 home.setup(show_board)
 gui_hooks.profile_did_open.append(_on_profile_open)
 gui_hooks.sync_did_finish.append(lambda: upload())
+gui_hooks.add_cards_did_add_note.append(_on_note_added)
 gui_hooks.profile_will_close.append(lambda: upload(blocking=True))

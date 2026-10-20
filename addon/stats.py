@@ -64,8 +64,13 @@ def anki_today(col) -> datetime.date:
     return datetime.datetime.fromtimestamp(col.sched.day_cutoff - 86400).date()
 
 
-def latest_review_id(col) -> int:
-    return ReadOnly(col).scalar("select coalesce(max(id), 0) from revlog") or 0
+def change_marker(col) -> str:
+    """Changes when a review is done or a card is added or deleted, so the
+    add-on knows whether there's anything new to upload."""
+    db = ReadOnly(col)
+    newest_review = db.scalar("select coalesce(max(id), 0) from revlog") or 0
+    newest_card, card_count = db.first("select coalesce(max(id), 0), count() from cards")
+    return f"{newest_review}:{newest_card}:{card_count}"
 
 
 def collect(col, days=None) -> dict:
