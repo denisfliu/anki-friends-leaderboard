@@ -148,7 +148,6 @@ class LeaderboardDialog(QDialog):
 
     def on_command(self, cmd: str):
         if cmd == "refresh":
-            updater.refresh_latest(self._save_cfg, self.push_update_state)
             self.load(check=True)
         elif cmd.startswith("range:"):
             parts = cmd.split(":")
@@ -215,6 +214,10 @@ class LeaderboardDialog(QDialog):
         changed; otherwise cached data is used when it covers the range."""
         if mw.col is None:
             return
+        if check:
+            # Anything that checks for new results (opening the window,
+            # Refresh) also checks for a newer add-on, at most once a minute.
+            updater.refresh_latest(self._save_cfg, self.push_update_state)
         today = stats.anki_today(mw.col)
         cache = cached_board()
         settings = (cache or {}).get("board", {}).get("settings") or {}
