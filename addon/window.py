@@ -390,28 +390,28 @@ PAGE = r"""
 
   /* In-page date picker and menu. Native pickers and dropdowns open macOS
      popups that crash Anki's web view, so nothing here opens one. */
-  .datefield { width: 116px; height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-variant-numeric: tabular-nums; }
+  .datefield { width: 116px; height: 30px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); font-variant-numeric: tabular-nums; }
   .datefield:focus, .menubtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .datefield.bad { border-color: #b3261e; }
-  .pop { position: absolute; z-index: 10; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 10px; }
+  .pop { position: absolute; z-index: 10; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 10px; }
   .cal-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
   .cal-head b { flex: 1; text-align: center; }
-  .cal-nav { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+  .cal-nav { width: 30px; height: 30px; margin: 0; padding: 0; box-shadow: none; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
   .cal-nav:disabled { opacity: .35; cursor: default; }
   .cal-grid { display: grid; grid-template-columns: repeat(7, 34px); gap: 2px; }
   .cal-grid .dow { text-align: center; color: var(--muted); font-size: 11px; padding: 4px 0; }
-  .cal-grid button { height: 32px; border: 0; border-radius: 6px; background: none; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .cal-grid button { width: 100%; min-width: 0; height: 32px; margin: 0; padding: 0; border: 0; box-shadow: none; border-radius: 3px; background: none; cursor: pointer; font-variant-numeric: tabular-nums; }
   .cal-grid button:hover:not(:disabled) { background: var(--track); }
   .cal-grid button.today { box-shadow: inset 0 0 0 1px var(--accent); }
   .cal-grid button.picked { background: var(--accent); color: var(--bg); font-weight: 650; }
   .cal-grid button:disabled { color: var(--muted); opacity: .45; cursor: default; }
   /* Sized to the current label; Anki's own button margin and padding are undone. */
-  .menubtn { display: inline-flex; align-items: center; gap: 8px; height: 30px; margin: 0; padding: 0 8px 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; min-width: 0; white-space: nowrap; text-align: left; }
+  .menubtn { display: inline-flex; align-items: center; gap: 8px; height: 30px; margin: 0; padding: 0 8px 0 10px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; min-width: 0; white-space: nowrap; text-align: left; }
   .mb-caret { margin-left: auto; color: var(--muted); font-size: 11px; }
   .menu { display: flex; flex-direction: column; padding: 4px; min-width: 140px; }
   /* Anki styles every <button> (margin, padding, border, shadow, weight);
      menu items undo that so the menu is a compact list. */
-  .menu button { text-align: left; height: 28px; margin: 0; padding: 0 10px; border: 0; border-radius: 6px; box-shadow: none; background: none; font: inherit; font-weight: 400; color: var(--text); white-space: nowrap; cursor: pointer; }
+  .menu button { text-align: left; height: 28px; margin: 0; padding: 0 10px; border: 0; border-radius: 3px; box-shadow: none; background: none; font: inherit; font-weight: 400; color: var(--text); white-space: nowrap; cursor: pointer; }
   .menu button:hover, .menu button:focus { background: var(--track); border: 0; outline: none; }
   .menu button[aria-checked="true"] { font-weight: 650; }
   .menu button[aria-checked="true"]::after { content: " ✓"; color: var(--accent); }
@@ -473,13 +473,13 @@ PAGE = r"""
   .menu button[role=menuitemcheckbox] .key { width: 14px; height: 2px; }
   .menu button[role=menuitemcheckbox][aria-checked="true"] .checkbox { background: var(--accent); border-color: var(--accent); }
   .menu button[role=menuitemcheckbox][aria-checked="true"]::after { content: none; }
-  .menu button.separated { border-top: 1px solid var(--line); border-radius: 0 0 6px 6px; }
+  .menu button.separated { border-top: 1px solid var(--line); border-radius: 0 0 3px 3px; }
   .seg-bar.unknown { background: var(--track); }
   .seg button[aria-pressed="true"] { background: var(--bg); color: var(--text); font-weight: 600; }
   .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .caption { flex: 1; color: var(--muted); }
   label { color: var(--muted); }
-  select, input[type=date] { height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); }
+  select, input[type=date] { height: 30px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); }
   .custom { display: none; }
   .custom.open { display: flex; }
   table.lb { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-variant-numeric: tabular-nums; }
