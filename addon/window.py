@@ -313,7 +313,31 @@ PAGE = r"""
     --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
   }
   button, select, input { font: inherit; color: var(--text); }
-  .wrap { padding: 0 22px 18px; display: flex; flex-direction: column; gap: 14px; min-height: 100vh; box-sizing: border-box; }
+  .wrap { position: relative; padding: 0 22px 18px; display: flex; flex-direction: column; gap: 14px; min-height: 100vh; box-sizing: border-box; }
+
+  /* In-page date picker and menu. Native pickers and dropdowns open macOS
+     popups that crash Anki's web view, so nothing here opens one. */
+  .datefield { width: 116px; height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); font-variant-numeric: tabular-nums; }
+  .datefield:focus, .menubtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .datefield.bad { border-color: #b3261e; }
+  .pop { position: absolute; z-index: 10; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 10px; }
+  .cal-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .cal-head b { flex: 1; text-align: center; }
+  .cal-nav { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+  .cal-nav:disabled { opacity: .35; cursor: default; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 34px); gap: 2px; }
+  .cal-grid .dow { text-align: center; color: var(--muted); font-size: 11px; padding: 4px 0; }
+  .cal-grid button { height: 32px; border: 0; border-radius: 6px; background: none; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .cal-grid button:hover:not(:disabled) { background: var(--track); }
+  .cal-grid button.today { box-shadow: inset 0 0 0 1px var(--accent); }
+  .cal-grid button.picked { background: var(--accent); color: var(--bg); font-weight: 650; }
+  .cal-grid button:disabled { color: var(--muted); opacity: .45; cursor: default; }
+  .menubtn { height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; min-width: 120px; text-align: left; }
+  .menu { display: flex; flex-direction: column; padding: 4px; min-width: 210px; }
+  .menu button { text-align: left; height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: none; cursor: pointer; }
+  .menu button:hover, .menu button:focus { background: var(--track); outline: none; }
+  .menu button[aria-checked="true"] { font-weight: 650; }
+  .menu button[aria-checked="true"]::after { content: " ✓"; color: var(--accent); }
   .tabs { display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   .tab { height: 44px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--muted); cursor: pointer; }
   .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 650; }
@@ -415,23 +439,18 @@ PAGE = r"""
         <button data-key="custom">Custom…</button>
       </div>
       <div class="row custom" id="custom">
-        <label for="from">From</label><input type="date" id="from">
-        <label for="to">To</label><input type="date" id="to">
+        <label for="from">From</label>
+        <input type="text" class="datefield" id="from" placeholder="YYYY-MM-DD" autocomplete="off" spellcheck="false" aria-describedby="date-help">
+        <label for="to">To</label>
+        <input type="text" class="datefield" id="to" placeholder="YYYY-MM-DD" autocomplete="off" spellcheck="false" aria-describedby="date-help">
         <button class="btn" onclick="lb.applyCustom()">Show</button>
+        <span class="note" id="date-help">Click a date to pick it from a calendar, or type it.</span>
       </div>
       <div class="row">
         <span class="caption" id="caption"></span>
         <span class="row" id="rankby">
-        <label for="metric">Rank by</label>
-        <select id="metric" onchange="lb.sortBy('board', this.value)">
-          <option value="reviews">Reviews</option>
-          <option value="minutes">Minutes</option>
-          <option value="secPerCard">Seconds per card (fastest)</option>
-          <option value="streak">Streak</option>
-          <option value="past31">Past 31 days</option>
-          <option value="retention">Retention</option>
-          <option value="added">Cards added</option>
-        </select>
+        <span id="metric-label">Rank by</span>
+        <button class="menubtn" id="metric" aria-haspopup="menu" aria-expanded="false" aria-labelledby="metric-label metric" onclick="lb.openMenu()"></button>
         </span>
       </div>
   </section>
@@ -519,6 +538,8 @@ PAGE = r"""
 
   <span class="spacer"></span>
   <p class="announce" id="announce" hidden></p>
+  <div class="pop" id="cal" role="dialog" aria-label="Choose a date" hidden></div>
+  <div class="pop menu" id="menu" role="menu" aria-label="Rank by" hidden></div>
 </div>
 <script>
 const lb = (() => {
@@ -595,7 +616,7 @@ const lb = (() => {
       body.append(tr);
     });
     markHeaders("board", sort.board);
-    $("metric").value = sort.board;
+    $("metric").textContent = RANKS.find((r) => r.key === sort.board).label + " ▾";
   }
 
   // ---- chart -------------------------------------------------------------
@@ -953,7 +974,8 @@ const lb = (() => {
     $("custom").classList.toggle("open", v.range.key === "custom");
     $("from").value = v.range.from;
     $("to").value = v.range.to;
-    $("from").max = $("to").max = v.range.today;
+    $("from").classList.remove("bad");
+    $("to").classList.remove("bad");
     $("caption").textContent = v.range.caption;
     $("announce").hidden = !v.announcement;
     $("announce").textContent = v.announcement;
@@ -1013,8 +1035,145 @@ const lb = (() => {
   }
 
   function applyCustom() {
-    pycmd("range:custom:" + $("from").value + ":" + $("to").value);
+    const a = parseDate($("from").value), b = parseDate($("to").value);
+    $("from").classList.toggle("bad", !a);
+    $("to").classList.toggle("bad", !b);
+    if (!a || !b) {
+      $("date-help").textContent = "Please enter dates like 2026-10-01.";
+      return;
+    }
+    $("date-help").textContent = "Click a date to pick it from a calendar, or type it.";
+    closePops();
+    pycmd("range:custom:" + iso(a) + ":" + iso(b));
   }
+
+  // ---- in-page calendar and menu ------------------------------------------
+
+  const RANKS = [
+    { key: "reviews", label: "Reviews" },
+    { key: "minutes", label: "Minutes" },
+    { key: "secPerCard", label: "Seconds per card (fastest)" },
+    { key: "streak", label: "Streak" },
+    { key: "past31", label: "Past 31 days" },
+    { key: "retention", label: "Retention" },
+    { key: "added", label: "Cards added" },
+  ];
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  let calField = null, calMonth = null;
+
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function iso(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function parseDate(text) {
+    const m = /^\s*(\d{4})-(\d{1,2})-(\d{1,2})\s*$/.exec(text || "");
+    if (!m) return null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return d.getMonth() === +m[2] - 1 && d.getDate() === +m[3] ? d : null;
+  }
+  function todayDate() { return parseDate(view ? view.range.today : "") || new Date(); }
+
+  function place(pop, anchor) {
+    const host = document.querySelector(".wrap").getBoundingClientRect();
+    const box = anchor.getBoundingClientRect();
+    pop.hidden = false;
+    const left = Math.min(box.left - host.left, host.width - pop.offsetWidth - 8);
+    pop.style.left = Math.max(8, left) + "px";
+    pop.style.top = box.bottom - host.top + 6 + "px";
+  }
+
+  function closePops() {
+    $("cal").hidden = true;
+    $("menu").hidden = true;
+    $("metric").setAttribute("aria-expanded", "false");
+    calField = null;
+  }
+
+  function openCal(field) {
+    $("menu").hidden = true;
+    calField = field;
+    const d = parseDate($(field).value) || todayDate();
+    calMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+    drawCal();
+    place($("cal"), $(field));
+  }
+
+  function drawCal() {
+    const cal = $("cal");
+    cal.replaceChildren();
+    const today = todayDate();
+    const picked = parseDate($(calField).value);
+    const head = document.createElement("div");
+    head.className = "cal-head";
+    const prev = document.createElement("button");
+    prev.className = "cal-nav"; prev.textContent = "‹"; prev.setAttribute("aria-label", "Previous month");
+    prev.onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1); drawCal(); };
+    const next = document.createElement("button");
+    next.className = "cal-nav"; next.textContent = "›"; next.setAttribute("aria-label", "Next month");
+    next.disabled = calMonth.getFullYear() * 12 + calMonth.getMonth() >= today.getFullYear() * 12 + today.getMonth();
+    next.onclick = () => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1); drawCal(); };
+    const title = document.createElement("b");
+    title.textContent = MONTHS[calMonth.getMonth()] + " " + calMonth.getFullYear();
+    head.append(prev, title, next);
+    const grid = document.createElement("div");
+    grid.className = "cal-grid";
+    ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].forEach((d) => {
+      const el = document.createElement("span"); el.className = "dow"; el.textContent = d; grid.append(el);
+    });
+    const lead = (calMonth.getDay() + 6) % 7;  // weeks start on Monday
+    for (let i = 0; i < lead; i++) grid.append(document.createElement("span"));
+    const days = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0).getDate();
+    for (let day = 1; day <= days; day++) {
+      const d = new Date(calMonth.getFullYear(), calMonth.getMonth(), day);
+      const b = document.createElement("button");
+      b.textContent = day;
+      b.setAttribute("aria-label", MONTHS[d.getMonth()] + " " + day + ", " + d.getFullYear());
+      if (iso(d) === iso(today)) b.classList.add("today");
+      if (picked && iso(d) === iso(picked)) b.classList.add("picked");
+      b.disabled = d > today;
+      b.onclick = () => {
+        const field = calField;
+        $(field).value = iso(d);
+        $(field).classList.remove("bad");
+        closePops();
+        $(field).focus({ preventScroll: true });
+      };
+      grid.append(b);
+    }
+    cal.append(head, grid);
+  }
+
+  function openMenu() {
+    const menu = $("menu");
+    if (!menu.hidden) { closePops(); return; }
+    $("cal").hidden = true;
+    menu.replaceChildren();
+    RANKS.forEach((r) => {
+      const b = document.createElement("button");
+      b.setAttribute("role", "menuitemradio");
+      b.setAttribute("aria-checked", String(r.key === sort.board));
+      b.textContent = r.label;
+      b.onclick = () => { closePops(); sortBy("board", r.key); $("metric").focus(); };
+      menu.append(b);
+    });
+    $("metric").setAttribute("aria-expanded", "true");
+    place(menu, $("metric"));
+    (menu.querySelector('[aria-checked="true"]') || menu.firstChild).focus();
+  }
+
+  ["from", "to"].forEach((id) => {
+    $(id).addEventListener("click", () => openCal(id));
+    $(id).addEventListener("keydown", (e) => {
+      if (e.key === "Enter") applyCustom();
+      if (e.key === "ArrowDown") { e.preventDefault(); openCal(id); const b = $("cal").querySelector("button.picked, .cal-grid button:not(:disabled)"); if (b) b.focus(); }
+    });
+  });
+  // Close on Escape or a click elsewhere; neither touches anything outside the page.
+  document.addEventListener("mousedown", (e) => {
+    const inside = (id) => $(id).contains(e.target);
+    if (!inside("cal") && !inside("menu") && e.target !== $("from") && e.target !== $("to") && !inside("metric")) closePops();
+  });
+  ["cal", "menu"].forEach((id) => $(id).addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { const back = calField ? $(calField) : $("metric"); closePops(); back.focus(); }
+  }));
 
   document.querySelectorAll("#ranges button").forEach((b) => {
     b.addEventListener("click", () => {
@@ -1037,7 +1196,7 @@ const lb = (() => {
     resizeTimer = setTimeout(() => view && drawChart(), 100);
   });
 
-  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable };
+  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable, openMenu };
 })();
 </script>
 """
