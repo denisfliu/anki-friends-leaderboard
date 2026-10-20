@@ -45,7 +45,7 @@ To publish a version: bump `VERSION` in `addon/__init__.py`, commit, then run `.
 
 ## Notes
 
-- Stats upload when Anki opens, after a sync and when Anki closes, but only if there are new reviews. The board downloads only when someone opens the leaderboard window, and the server sends a tiny "unchanged" answer if nothing is new.
+- Stats upload only after a sync, and only if something changed. Joining and **Upload my stats now** also upload. The board downloads only when someone opens the leaderboard window, and the server sends a tiny "unchanged" answer if nothing is new.
 - Reviews done on a phone count once they sync and desktop Anki opens.
 - New stats need no server change. A new field from the add-on shows up as a new column.
 - The first person to join is the admin. **Tools → Friends Leaderboard → Admin** shows the invite code, posts announcements, resets someone's sign-in and removes people. The server also supports changing the invite code, renaming people and promoting other admins; those don't have menu items yet.
