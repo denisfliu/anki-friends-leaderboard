@@ -406,9 +406,11 @@ PAGE = r"""
   .cal-grid button.picked { background: var(--accent); color: var(--bg); font-weight: 650; }
   .cal-grid button:disabled { color: var(--muted); opacity: .45; cursor: default; }
   .menubtn { height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; min-width: 120px; text-align: left; }
-  .menu { display: flex; flex-direction: column; padding: 4px; min-width: 210px; }
-  .menu button { text-align: left; height: 32px; padding: 0 10px; border: 0; border-radius: 6px; background: none; cursor: pointer; }
-  .menu button:hover, .menu button:focus { background: var(--track); outline: none; }
+  .menu { display: flex; flex-direction: column; padding: 4px; min-width: 140px; }
+  /* Anki styles every <button> (margin, padding, border, shadow, weight);
+     menu items undo that so the menu is a compact list. */
+  .menu button { text-align: left; height: 28px; margin: 0; padding: 0 10px; border: 0; border-radius: 6px; box-shadow: none; background: none; font: inherit; font-weight: 400; color: var(--text); white-space: nowrap; cursor: pointer; }
+  .menu button:hover, .menu button:focus { background: var(--track); border: 0; outline: none; }
   .menu button[aria-checked="true"] { font-weight: 650; }
   .menu button[aria-checked="true"]::after { content: " ✓"; color: var(--accent); }
   .tabs { display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
