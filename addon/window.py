@@ -440,11 +440,10 @@ PAGE = r"""
       </div>
       <div class="row custom" id="custom">
         <label for="from">From</label>
-        <input type="text" class="datefield" id="from" placeholder="YYYY-MM-DD" autocomplete="off" spellcheck="false" aria-describedby="date-help">
+        <input type="text" class="datefield" id="from" placeholder="YYYY-MM-DD" autocomplete="off" spellcheck="false">
         <label for="to">To</label>
-        <input type="text" class="datefield" id="to" placeholder="YYYY-MM-DD" autocomplete="off" spellcheck="false" aria-describedby="date-help">
+        <input type="text" class="datefield" id="to" placeholder="YYYY-MM-DD" autocomplete="off" spellcheck="false">
         <button class="btn" onclick="lb.applyCustom()">Show</button>
-        <span class="note" id="date-help">Click a date to pick it from a calendar, or type it.</span>
       </div>
       <div class="row">
         <span class="caption" id="caption"></span>
@@ -479,10 +478,9 @@ PAGE = r"""
         </div>
         <div class="legend" id="legend"></div>
         <div class="plot" id="plot">
-          <svg id="svg" role="img" tabindex="0" aria-describedby="chart-help"></svg>
+          <svg id="svg" role="img" tabindex="0"></svg>
           <div class="tip" id="tip" hidden></div>
         </div>
-        <p class="note" id="chart-help">Hover over the chart, or focus it and use the arrow keys, to see each day's numbers.</p>
         <div class="chart-table" id="chart-table" hidden></div>
       </section>
     </div>
@@ -494,11 +492,11 @@ PAGE = r"""
         <thead><tr>
           <th class="l">#</th><th class="l">Name</th>
           <th data-sort="reviews"><button>Reviews</button></th>
-          <th data-sort="learn"><button>Learning</button></th>
-          <th data-sort="young"><button>Young</button></th>
-          <th data-sort="mature"><button>Mature</button></th>
-          <th data-sort="relearn"><button>Relearning</button></th>
-          <th data-sort="added"><button>Added</button></th>
+          <th data-sort="learn" title="A new card's first steps"><button>Learning</button></th>
+          <th data-sort="young" title="Reviews of cards with intervals under 21 days"><button>Young</button></th>
+          <th data-sort="mature" title="Reviews of cards with intervals of 21 days or more"><button>Mature</button></th>
+          <th data-sort="relearn" title="Forgotten cards going back through their steps"><button>Relearning</button></th>
+          <th data-sort="added" title="Cards created"><button>Added</button></th>
         </tr></thead>
         <tbody id="breakdown-rows"></tbody>
       </table>
@@ -513,7 +511,6 @@ PAGE = r"""
         <div class="bars" id="bars"></div>
         <div class="tip" id="mix-tip" hidden></div>
       </section>
-      <p class="note">These match Anki's Reviews graph. Learning is a new card's first steps, Young and Mature are reviews of cards with intervals under or over 21 days, and Relearning is a forgotten card going back through its steps. Added counts cards created.</p>
     </div>
   </section>
 
@@ -523,16 +520,15 @@ PAGE = r"""
       <table class="lb">
         <thead><tr>
           <th class="l">#</th><th class="l">Name</th>
-          <th data-sort="xp"><button>XP</button></th>
+          <th data-sort="xp" title="Days studied % × (6 × minutes + 2 × reviews × retention bonus). A day counts with at least 5 minutes."><button>XP</button></th>
           <th data-sort="reviews"><button>Reviews</button></th>
           <th data-sort="minutes"><button>Minutes</button></th>
           <th data-sort="retention"><button>Retention</button></th>
-          <th data-sort="daysPercent"><button>Days</button></th>
+          <th data-sort="daysPercent" title="Share of this season's days with at least 5 minutes of study"><button>Days</button></th>
           <th>Medals</th>
         </tr></thead>
         <tbody id="league-rows"></tbody>
       </table>
-      <p class="note">XP is days studied % × (6 × minutes + 2 × reviews × retention bonus). A day counts as studied with at least 5 minutes. The top three when a season ends get gold, silver and bronze.</p>
     </div>
   </section>
 
@@ -654,7 +650,7 @@ const lb = (() => {
     const series = chartSeries();
     const n = c.labels.length;
     const direct = series.length <= 4;
-    $("chart-title").textContent = m.label + (sort.board !== metric ? " (this view has no daily chart, so it shows reviews)" : "");
+    $("chart-title").textContent = m.label;
     $("chart-caption").textContent = c.caption;
 
     const legend = $("legend");
@@ -670,11 +666,6 @@ const lb = (() => {
         item.append(key, name);
         legend.append(item);
       });
-    }
-    if (c.series.length > SLOTS) {
-      const more = document.createElement("span");
-      more.textContent = `The chart shows the first ${SLOTS} people who joined; everyone is in the table above.`;
-      legend.append(more);
     }
 
     const svg = $("svg");
@@ -1038,11 +1029,7 @@ const lb = (() => {
     const a = parseDate($("from").value), b = parseDate($("to").value);
     $("from").classList.toggle("bad", !a);
     $("to").classList.toggle("bad", !b);
-    if (!a || !b) {
-      $("date-help").textContent = "Please enter dates like 2026-10-01.";
-      return;
-    }
-    $("date-help").textContent = "Click a date to pick it from a calendar, or type it.";
+    if (!a || !b) return;
     closePops();
     pycmd("range:custom:" + iso(a) + ":" + iso(b));
   }
