@@ -342,7 +342,14 @@ PAGE = r"""
   .tab { height: 44px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--muted); cursor: pointer; }
   .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 650; }
   .spacer { flex: 1; }
-  .status { align-self: center; color: var(--muted); font-size: 12px; margin-right: 8px; }
+  .status { align-self: center; color: var(--muted); font-size: 11px; margin-right: 2px; white-space: nowrap; }
+  .icon { align-self: center; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+  .icon:hover { background: var(--track); color: var(--text); }
+  .icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .icon[aria-pressed="true"] { color: var(--accent); }
+  .icon[aria-pressed="true"] .pin-head { fill: currentColor; }
+  .icon.spinning svg { animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .btn { height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
   .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   .tabs .btn { align-self: center; margin-left: 6px; }
@@ -424,9 +431,9 @@ PAGE = r"""
     <button class="tab" role="tab" id="tab-breakdown" aria-selected="false" onclick="lb.tab('breakdown')">Breakdown</button>
     <button class="tab" role="tab" id="tab-league" aria-selected="false" onclick="lb.tab('league')">League</button>
     <span class="spacer"></span>
-    <span class="status" id="status">Loading…</span>
-    <button class="btn" id="pin" aria-pressed="false" onclick="lb.togglePin()">Pin to home screen</button>
-    <button class="btn" onclick="pycmd('refresh')">Refresh</button>
+    <span class="status" id="status"></span>
+    <button class="icon" id="refresh" aria-label="Refresh" title="Refresh" onclick="pycmd('refresh')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+    <button class="icon" id="pin" aria-pressed="false" aria-label="Pin to home screen" title="Pin to home screen" onclick="lb.togglePin()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path class="pin-head" d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>
   </div>
 
   <section id="range-block" style="display:flex;flex-direction:column;gap:14px">
@@ -955,11 +962,12 @@ const lb = (() => {
   // ---- shell -------------------------------------------------------------
 
   function render(v) {
-    clearTimeout(slowTimer);
+    $("refresh").classList.remove("spinning");
     const first = view === null;
     view = v;
     if (first && v.pinned && v.pinnedMetric) sort.board = v.pinnedMetric;
     $("status").classList.remove("error");
+    $("status").removeAttribute("title");
     $("status").textContent = v.updated ? "Updated " + v.updated : "";
     document.querySelectorAll("#ranges button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.key === v.range.key)));
     $("custom").classList.toggle("open", v.range.key === "custom");
@@ -970,29 +978,28 @@ const lb = (() => {
     $("caption").textContent = v.range.caption;
     $("announce").hidden = !v.announcement;
     $("announce").textContent = v.announcement;
+    const pinLabel = v.pinned ? "Unpin from home screen" : "Pin to home screen";
     $("pin").setAttribute("aria-pressed", String(v.pinned));
-    $("pin").textContent = v.pinned ? "Pinned to home screen" : "Pin to home screen";
+    $("pin").setAttribute("aria-label", pinLabel);
+    $("pin").title = pinLabel;
     drawBoard();
     drawChart();
     drawBreakdown();
     drawLeague();
   }
 
-  let slowTimer = null;
-
   function loading(on) {
-    clearTimeout(slowTimer);
-    if (!on) return;
-    $("status").classList.remove("error");
-    $("status").textContent = view ? "Checking for new results…" : "Loading…";
-    slowTimer = setTimeout(() => {
-      $("status").textContent = "The server is slow right now. Still trying…";
-    }, 10000);
+    $("refresh").classList.toggle("spinning", on);
+    if (on && $("status").classList.contains("error")) {
+      $("status").classList.remove("error");
+      $("status").textContent = "";
+    }
   }
 
   function error(message) {
-    clearTimeout(slowTimer);
-    $("status").textContent = view ? "Couldn't check for new results. " + message : message;
+    $("refresh").classList.remove("spinning");
+    $("status").textContent = "Couldn't refresh";
+    $("status").title = message;
     $("status").classList.add("error");
   }
 
