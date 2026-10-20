@@ -12,6 +12,7 @@ like Anki's Added graph.
 """
 
 import datetime
+import re
 
 HISTORY_DAYS = 14
 # learning, young, mature, relearning: the groups of Anki's Reviews graph.
@@ -23,16 +24,53 @@ GROUPS = (
 CHUNK_DAYS = 400
 
 
+class ReadOnly:
+    """The only way this add-on touches a collection.
+
+    It exposes Anki's read methods and refuses anything that isn't a single
+    SELECT, so no change to the add-on can edit, add or delete anyone's cards,
+    notes, decks or review history. scripts/check_safety.py enforces at release
+    time that nothing reaches the collection except through this class.
+    """
+
+    _ALLOWED = re.compile(r"^\s*select\b", re.IGNORECASE)
+    _FORBIDDEN = re.compile(
+        r"\b(insert|update|delete|replace|drop|alter|create|attach|detach|pragma|vacuum|reindex)\b",
+        re.IGNORECASE,
+    )
+
+    def __init__(self, col):
+        self._db = col.db
+
+    def _check(self, sql: str) -> str:
+        if not self._ALLOWED.match(sql) or ";" in sql or self._FORBIDDEN.search(sql):
+            raise PermissionError("Friends Leaderboard only reads from the collection.")
+        return sql
+
+    def all(self, sql, *args):
+        return self._db.all(self._check(sql), *args)
+
+    def first(self, sql, *args):
+        return self._db.first(self._check(sql), *args)
+
+    def list(self, sql, *args):
+        return self._db.list(self._check(sql), *args)
+
+    def scalar(self, sql, *args):
+        return self._db.scalar(self._check(sql), *args)
+
+
 def anki_today(col) -> datetime.date:
     return datetime.datetime.fromtimestamp(col.sched.day_cutoff - 86400).date()
 
 
 def latest_review_id(col) -> int:
-    return col.db.scalar("select coalesce(max(id), 0) from revlog") or 0
+    return ReadOnly(col).scalar("select coalesce(max(id), 0) from revlog") or 0
 
 
 def collect(col, days=None) -> dict:
     """Per-day rows for the last `days` days (None = all history) plus totals."""
+    db = ReadOnly(col)
     cutoff = col.sched.day_cutoff
     today = anki_today(col)
     since_ms = 0 if days is None else (cutoff - days * 86400) * 1000
@@ -47,7 +85,7 @@ def collect(col, days=None) -> dict:
         }
 
     per_day = {}
-    for d, reviews, ms, again, rev_cards, rev_correct, learn, young, mature, relearn in col.db.all(
+    for d, reviews, ms, again, rev_cards, rev_correct, learn, young, mature, relearn in db.all(
         f"select {day.format(col='id')} as d, count(), sum(time), sum(ease = 1),"
         f" sum(type = 1), sum(type = 1 and ease > 1), {GROUPS}"
         " from revlog where ease > 0 and id >= ? group by d",
@@ -68,7 +106,7 @@ def collect(col, days=None) -> dict:
         )
 
     # Cards created per day; a day can have additions and no reviews.
-    for d, n in col.db.all(
+    for d, n in db.all(
         f"select {day.format(col='id')} as d, count() from cards where id >= ? group by d",
         cutoff,
         since_ms,
@@ -76,7 +114,7 @@ def collect(col, days=None) -> dict:
         per_day.setdefault(d, blank())["added"] = n
 
     # A card counts as new on the day of its first answer.
-    for d, n in col.db.all(
+    for d, n in db.all(
         f"select {day.format(col='first')} as d, count()"
         " from (select min(id) as first from revlog where ease > 0 group by cid)"
         " where first >= ? group by d",
@@ -93,14 +131,14 @@ def collect(col, days=None) -> dict:
                 {"date": (today - datetime.timedelta(days=d)).isoformat(), **per_day[d]}
             )
 
-    reviews, ms, again, cards, learn, young, mature, relearn = col.db.first(
+    reviews, ms, again, cards, learn, young, mature, relearn = db.first(
         "select count(), coalesce(sum(time), 0), coalesce(sum(ease = 1), 0), count(distinct cid),"
         f" {GROUPS} from revlog where ease > 0"
     )
-    added = col.db.scalar("select count() from cards") or 0
+    added = db.scalar("select count() from cards") or 0
     studied = {
         d
-        for d in col.db.list(
+        for d in db.list(
             f"select distinct {day.format(col='id')} from revlog where ease > 0",
             cutoff,
         )

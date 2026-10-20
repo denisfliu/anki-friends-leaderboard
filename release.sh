@@ -8,6 +8,8 @@ version=$(sed -n 's/^VERSION = "\(.*\)"/\1/p' addon/__init__.py)
 if [ -z "$version" ]; then echo "Couldn't read VERSION from addon/__init__.py"; exit 1; fi
 if ! git diff --quiet || ! git diff --cached --quiet; then echo "Commit your changes first."; exit 1; fi
 if gh release view "v$version" >/dev/null 2>&1; then echo "v$version is already released. Bump VERSION first."; exit 1; fi
+# Never publish anything that could change someone's collection.
+python3 scripts/check_safety.py || { echo "Release stopped by the safety check."; exit 1; }
 ./build.sh
 git push
 gh release create "v$version" dist/friends_leaderboard.ankiaddon --title "v$version" --notes "${1:-Version $version}"

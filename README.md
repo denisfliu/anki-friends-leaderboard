@@ -29,6 +29,14 @@ A private Anki leaderboard for a small group, backed by a Google Sheet.
 2. In desktop Anki, open **Tools → Add-ons → Install from file…**, pick that file and restart Anki.
 3. Open **Tools → Friends Leaderboard → Join…**, then enter a name and the invite code.
 
+## Your cards are never touched
+
+The add-on only reads from Anki collections. It counts reviews and cards; it never adds, changes or deletes cards, notes, decks or review history.
+
+- All collection access goes through `ReadOnly` in `addon/stats.py`, which allows single `SELECT` queries and refuses everything else.
+- `scripts/check_safety.py` scans the code and fails if anything could reach a collection another way, call an Anki method that edits one, or contain write SQL. `release.sh` runs it first, so a release that fails can't be published.
+- The only files the add-on writes are its own settings, a saved copy of the leaderboard in `user_files/`, and its own files when it updates itself (only after checking the download is this add-on).
+
 ## Updates
 
 The add-on checks this repo's latest GitHub release once a day and installs newer versions by itself; the new version runs after Anki restarts. **Tools → Friends Leaderboard → Check for updates** checks right away.
