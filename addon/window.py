@@ -12,6 +12,7 @@ import os
 
 from aqt import mw
 from aqt.qt import QDialog, QVBoxLayout
+from aqt.utils import askUser
 from aqt.webview import AnkiWebView
 
 from . import client, ranking, stats, updater
@@ -167,6 +168,17 @@ class LeaderboardDialog(QDialog):
                 return
             self.web.eval(f"lb.setUpdate({json.dumps(dict(state, state='installing'))})")
             updater.check(updater.CURRENT, self._save_cfg, manual=False, on_finish=self.push_update_state)
+        elif cmd == "quit-to-update":
+            state = updater.update_state(mw.addonManager.getConfig(ADDON))
+            if state["state"] == "restart" and askUser(
+                f"Quit Anki now to finish updating? Version {state['version']} starts "
+                "the next time you open Anki.",
+                parent=self,
+            ):
+                # The same path as closing Anki's main window: it syncs if
+                # syncing is on, then quits. Nothing here touches cards.
+                self.reject()
+                mw.unloadProfileAndExit()
         elif cmd.startswith("prefs:"):
             try:
                 prefs = json.loads(cmd[len("prefs:"):])
@@ -401,18 +413,18 @@ PAGE = r"""
   .tab[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--text); font-weight: 650; }
   .spacer { flex: 1; }
   .status { align-self: center; color: var(--muted); font-size: 11px; margin-right: 2px; white-space: nowrap; }
-  .icon { align-self: center; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; }
+  .icon { align-self: center; width: 24px; height: 24px; margin-left: 4px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 12px; background: none; color: var(--muted); cursor: pointer; }
   .icon:hover { background: var(--track); color: var(--text); }
   .icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .icon[aria-pressed="true"] { color: var(--accent); }
   .icon[aria-pressed="true"] .pin-head { fill: currentColor; }
   .icon.spinning svg { animation: spin .9s linear infinite; }
   .icon.update { position: relative; color: var(--accent); }
-  .icon.update::after { content: ""; position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 3px; background: #e34948; box-shadow: 0 0 0 2px var(--bg); }
+  .icon.update::after { content: ""; position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 3px; background: #e34948; box-shadow: 0 0 0 2px var(--bg); }
   .icon.update .restart { display: none; }
   .icon.update.restart .download { display: none; }
   .icon.update.restart .restart { display: block; }
-  .icon.update.restart { cursor: default; }
+
   .icon.update.installing { opacity: .5; cursor: progress; }
   @keyframes spin { to { transform: rotate(360deg); } }
   .btn { height: 28px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
@@ -1404,7 +1416,7 @@ const lb = (() => {
     b.classList.toggle("restart", updateState.state === "restart");
     b.classList.toggle("installing", updateState.state === "installing");
     const v = updateState.version;
-    const label = updateState.state === "restart" ? `Version ${v} is installed. Restart Anki to start using it.`
+    const label = updateState.state === "restart" ? `Version ${v} is installed. Quit Anki to finish updating.`
       : updateState.state === "installing" ? `Installing version ${v}…`
       : `Version ${v} is available. Click to install it.`;
     b.title = label;
@@ -1413,6 +1425,7 @@ const lb = (() => {
 
   function clickUpdate() {
     if (updateState.state === "available") pycmd("update");
+    else if (updateState.state === "restart") pycmd("quit-to-update");
   }
 
   function loading(on) {
