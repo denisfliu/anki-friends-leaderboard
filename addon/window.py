@@ -407,10 +407,6 @@ PAGE = r"""
   .cal-grid button:disabled { color: var(--muted); opacity: .45; cursor: default; }
   /* Sized to the current label; Anki's own button margin and padding are undone. */
   .menubtn { display: inline-flex; align-items: center; gap: 8px; height: 30px; margin: 0; padding: 0 8px 0 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; min-width: 0; white-space: nowrap; text-align: left; }
-  /* All choices sit in one grid cell so the button keeps the width of the longest one. */
-  .mb-stack { display: inline-grid; }
-  .mb-stack > span { grid-area: 1 / 1; }
-  .mb-ghost { visibility: hidden; }
   .mb-caret { margin-left: auto; color: var(--muted); font-size: 11px; }
   .menu { display: flex; flex-direction: column; padding: 4px; min-width: 140px; }
   /* Anki styles every <button> (margin, padding, border, shadow, weight);
@@ -840,7 +836,7 @@ const lb = (() => {
       body.append(tr);
     });
     markHeaders("board");
-    setMenuBtn($("metric"), "", RANKS.find((r) => r.key === st.key).short, RANKS.map((r) => r.short));
+    setMenuBtn($("metric"), "", RANKS.find((r) => r.key === st.key).short);
   }
 
   // ---- chart -----------------------------------------------------------------
@@ -948,9 +944,8 @@ const lb = (() => {
     return item;
   }
 
-  // Muted prefix, the current choice, and a caret at the right edge. The other
-  // choices are laid out invisibly so the width never changes.
-  function setMenuBtn(btn, prefix, current, choices) {
+  // Muted prefix, the current choice, and a caret; the button fits its label.
+  function setMenuBtn(btn, prefix, current) {
     btn.textContent = "";
     if (prefix) {
       const p = document.createElement("span");
@@ -958,19 +953,13 @@ const lb = (() => {
       p.textContent = prefix;
       btn.append(p);
     }
-    const stack = document.createElement("span");
-    stack.className = "mb-stack";
-    for (const choice of new Set([current, ...choices])) {
-      const span = document.createElement("span");
-      span.textContent = choice;
-      if (choice !== current) span.className = "mb-ghost";
-      stack.append(span);
-    }
+    const value = document.createElement("span");
+    value.textContent = current;
     const caret = document.createElement("span");
     caret.className = "mb-caret";
     caret.setAttribute("aria-hidden", "true");
     caret.textContent = "▾";
-    btn.append(stack, caret);
+    btn.append(value, caret);
   }
 
   function drawChart() {
@@ -984,8 +973,8 @@ const lb = (() => {
     const on = highlighted();
     const st = styles(on);
 
-    setMenuBtn($("chart-btn"), "Chart", CHART_TYPES.find((t) => t.key === type).short, CHART_TYPES.map((t) => t.short));
-    setMenuBtn($("show-btn"), "Show", m.short, Object.values(METRICS).map((x) => x.short));
+    setMenuBtn($("chart-btn"), "Chart", CHART_TYPES.find((t) => t.key === type).short);
+    setMenuBtn($("show-btn"), "Show", m.short);
     const comparing = !!chart.compare;
     $("hl-btn").hidden = comparing || type === "avg";
     $("compare-chip").hidden = !comparing;
@@ -995,7 +984,7 @@ const lb = (() => {
     }
     const count = c.series.filter((s) => !chart.off.has(s.id)).length;
     const total = c.series.length;
-    setMenuBtn($("hl-btn"), "Highlight", count === total ? "All" : count + " of " + total, ["All", total + " of " + total]);
+    setMenuBtn($("hl-btn"), "Highlight", count === total ? "All" : count + " of " + total);
 
     $("chart-title").textContent = type === "race"
       ? (isAvg ? m.label + ", running average" : m.label + " so far")
