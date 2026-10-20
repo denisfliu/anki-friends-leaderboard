@@ -147,6 +147,7 @@ class LeaderboardDialog(QDialog):
 
     def on_command(self, cmd: str):
         if cmd == "refresh":
+            updater.refresh_latest(self._save_cfg, self.push_update_state, force=True)
             self.load(check=True)
         elif cmd.startswith("range:"):
             parts = cmd.split(":")

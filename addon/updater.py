@@ -31,6 +31,9 @@ _waiting = []  # called with no arguments when a running check finishes
 # window can show the update icon without waiting for the daily check.
 CURRENT = "0"
 LATEST_EVERY_S = 3600
+# Refresh asks again sooner, but never more than once a minute (GitHub allows
+# 60 unauthenticated requests an hour per computer).
+LATEST_FORCED_GAP_S = 60
 _latest = {"version": "", "checked": 0.0}
 
 
@@ -53,9 +56,10 @@ def forget_finished_update(cfg: dict, save) -> None:
         save(cfg)
 
 
-def refresh_latest(save, on_change) -> None:
-    """Ask GitHub for the newest release at most once an hour."""
-    if _is_dev_copy() or time.time() - _latest["checked"] < LATEST_EVERY_S:
+def refresh_latest(save, on_change, force: bool = False) -> None:
+    """Ask GitHub for the newest release: hourly, or on Refresh at most once a minute."""
+    gap = LATEST_FORCED_GAP_S if force else LATEST_EVERY_S
+    if _is_dev_copy() or time.time() - _latest["checked"] < gap:
         return
     _latest["checked"] = time.time()
 
