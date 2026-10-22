@@ -26,6 +26,14 @@ ADDON = __name__.split(".")[0]
 _cache = None
 _fetching = False
 _dialog = None
+# Emoji reactions on people's days: posts of kind "react" with data
+# {to, day, e}. Kept in memory and refreshed whenever the window checks.
+# Off until the unlock design is settled: nothing is downloaded or shown.
+REACTIONS_ENABLED = False
+# Emotes unlock with reviews done today and lock again tomorrow: (emoji, reviews needed).
+EMOTES = (("🤓", 25), ("🫵", 50), ("🗿", 100), ("🐌", 250), ("🧠", 500), ("💀", 1000), ("💥", 2000), ("🌱", 3000))
+EMOJI = tuple(e for e, _ in EMOTES)
+_reactions = []
 CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_files", "board.json")
 
 
@@ -88,6 +96,31 @@ def fetch_board(need: datetime.date, on_done) -> None:
     client.in_background(lambda: client.call(url, payload), done)
 
 
+def fetch_reactions(on_done) -> None:
+    """Download every reaction (the group is small) and call on_done(error)."""
+    global _reactions
+    cfg = mw.addonManager.getConfig(ADDON)
+    payload = {"action": "feed", "token": cfg.get("token"), "kinds": ["react"], "limit": 500}
+
+    def done(fut):
+        global _reactions
+        try:
+            posts = fut.result().get("posts") or []
+        except Exception as e:
+            on_done(e)
+            return
+        out = []
+        for post in posts:
+            d = post.get("data") if isinstance(post.get("data"), dict) else {}
+            if d.get("e") in EMOJI and isinstance(d.get("to"), str) and isinstance(d.get("day"), str):
+                out.append({"id": post.get("id"), "player": post.get("player"), "name": post.get("name"),
+                            "to": d["to"], "day": d["day"][:10], "e": d["e"]})
+        _reactions = out
+        on_done(None)
+
+    client.in_background(lambda: client.call(cfg.get("server_url"), payload), done)
+
+
 def is_fetching() -> bool:
     return _fetching
 
@@ -115,10 +148,19 @@ def _save_cache() -> None:
         pass
 
 
-def needed_since(today, settings, rng) -> datetime.date:
+# A streak that ends inside a range is counted in full, so ranges also download
+# the days before them, as far back as the longest streak in the group.
+STREAK_LOOKBACK_MAX = 200
+
+
+def needed_since(today, settings, rng, players=None) -> datetime.date:
     start, end, _ = range_dates(*rng, today=today)
     c_start, _, _ = chart_window(rng[0], start, end, today)
-    return min(ranking.oldest_needed(today, settings, start), c_start)
+    need = min(ranking.oldest_needed(today, settings, start), c_start)
+    if start is not None:
+        longest = max([int(ranking._num(p.get("longestStreak"))) for p in players or []] or [120])
+        need = min(need, start - min(longest, STREAK_LOOKBACK_MAX) * DAY)
+    return need
 
 
 class LeaderboardDialog(QDialog):
@@ -187,6 +229,8 @@ class LeaderboardDialog(QDialog):
                 cfg = mw.addonManager.getConfig(ADDON)
                 cfg["view_prefs"] = {k: prefs[k] for k in ("tab", "sort", "chart", "show", "off") if k in prefs}
                 mw.addonManager.writeConfig(ADDON, cfg)
+        elif REACTIONS_ENABLED and (cmd.startswith("react:") or cmd.startswith("unreact:")):
+            self.send_reaction(cmd)
         elif cmd.startswith("pin:"):
             _, state, metric = (cmd.split(":") + ["", ""])[:3]
             cfg = mw.addonManager.getConfig(ADDON)
@@ -207,6 +251,38 @@ class LeaderboardDialog(QDialog):
         state = updater.update_state(mw.addonManager.getConfig(ADDON))
         self.web.eval(f"lb.setUpdate({json.dumps(state)})")
 
+    def send_reaction(self, cmd: str) -> None:
+        cfg = mw.addonManager.getConfig(ADDON)
+        if cmd.startswith("react:"):
+            try:
+                d = json.loads(cmd[len("react:"):])
+            except ValueError:
+                return
+            if not isinstance(d, dict) or d.get("e") not in EMOJI:
+                return
+            payload = {"action": "post", "kind": "react", "data": {"to": str(d.get("to")), "day": str(d.get("day"))[:10], "e": d["e"]}}
+        else:
+            payload = {"action": "deletePost", "id": cmd[len("unreact:"):]}
+        payload["token"] = cfg.get("token")
+
+        def done(fut):
+            try:
+                fut.result()
+            except Exception as e:
+                if _dialog is self:
+                    message = "Your reaction didn't save. " + str(e)
+                    self.web.eval(f"lb.error({json.dumps(message)})")
+            # Either way, show what the server now has.
+            self.refresh_reactions()
+
+        client.in_background(lambda: client.call(cfg.get("server_url"), payload), done)
+
+    def refresh_reactions(self) -> None:
+        def done(error):
+            if _dialog is self and error is None:
+                self.web.eval(f"lb.setReactions({json.dumps(_reactions)})")
+        fetch_reactions(done)
+
     # -- data
 
     def load(self, check: bool = False) -> None:
@@ -218,10 +294,13 @@ class LeaderboardDialog(QDialog):
             # Anything that checks for new results (opening the window,
             # Refresh) also checks for a newer add-on, at most once a minute.
             updater.refresh_latest(self._save_cfg, self.push_update_state)
+            if REACTIONS_ENABLED:
+                self.refresh_reactions()
         today = stats.anki_today(mw.col)
         cache = cached_board()
         settings = (cache or {}).get("board", {}).get("settings") or {}
-        need = needed_since(today, settings, self.range)
+        players = (cache or {}).get("board", {}).get("players")
+        need = needed_since(today, settings, self.range, players)
         if cache and cache["since"] <= need.isoformat():
             self.board = cache["board"]
             self.render(today)
@@ -246,7 +325,7 @@ class LeaderboardDialog(QDialog):
             self.board = board
             # The season start lives in group settings; fetch again if it
             # turns out to need older days than this download covered.
-            if needed_since(today, board.get("settings"), self.range).isoformat() < _cache["since"]:
+            if needed_since(today, board.get("settings"), self.range, board.get("players")).isoformat() < _cache["since"]:
                 self.load(check=True)
                 return
             self.render(today)
@@ -273,6 +352,9 @@ class LeaderboardDialog(QDialog):
             "prefs": cfg.get("view_prefs") or {},
             "update": updater.update_state(cfg),
             "pinnedMetric": cfg.get("home_metric") or "reviews",
+            "reactions": _reactions,
+            "reactionsOn": REACTIONS_ENABLED,
+            "todayReviews": stats.today_reviews(mw.col) if mw.col is not None else 0,
             "range": {
                 "key": self.range[0],
                 "caption": caption,
@@ -489,7 +571,13 @@ PAGE = r"""
   select, input[type=date] { height: 30px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--surface); }
   .custom { display: none; }
   .custom.open { display: flex; }
-  table.lb { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-variant-numeric: tabular-nums; }
+  table.lb { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--line); border-radius: 8px; font-variant-numeric: tabular-nums; }
+  /* Corners are rounded per cell rather than clipped, so a reaction pill can
+     hang over the table's bottom edge. */
+  .lb thead th:first-child { border-top-left-radius: 7px; }
+  .lb thead th:last-child { border-top-right-radius: 7px; }
+  .lb tbody tr:last-child td:first-child { border-bottom-left-radius: 7px; }
+  .lb tbody tr:last-child td:last-child { border-bottom-right-radius: 7px; }
   .lb th { background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 600; padding: 9px 10px; text-align: right; white-space: nowrap; }
   .lb th button { all: unset; cursor: pointer; }
   .lb th.sorted { color: var(--text); }
@@ -507,6 +595,32 @@ PAGE = r"""
   .season { display: flex; align-items: baseline; gap: 10px; }
   .season h2 { margin: 0; font-size: 17px; font-weight: 650; }
   .note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .namebox { display: flex; flex-direction: column; min-width: 0; }
+  .namebox .line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .namebox .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .lb td.anchor { position: relative; overflow: visible; }
+  .namebox .line.anchor { position: relative; align-self: flex-start; max-width: 100%; overflow: visible; }
+  /* Raised at the top right of the name, like an exponent, inside its own row. */
+  .rbadge { all: unset; position: absolute; left: 100%; top: -8px; z-index: 3; box-sizing: border-box; display: inline-flex; align-items: center; gap: 2px; height: 14px; padding: 0 2px 0 3px; border-radius: 4px; color: var(--muted); font-size: 10px; font-weight: 600; line-height: 1; white-space: nowrap; }
+  button.rbadge { cursor: pointer; }
+  button.rbadge:hover { background: var(--track); }
+  .rbadge .em { font-size: 10px; }
+  .rbadge[aria-pressed="true"] { color: var(--accent); }
+  .rbadge:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .rbadge.ghost { opacity: 0; width: 16px; justify-content: center; padding: 0; }
+  .lb tr:hover .rbadge.ghost, .rbadge.ghost:focus-visible, .rbadge.ghost[aria-expanded="true"] { opacity: 1; }
+  .rbadge.grass { font-size: 11px; cursor: default; }
+  .react { all: unset; cursor: pointer; font-size: 12px; line-height: 20px; height: 20px; padding: 0 6px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-weight: 400; white-space: nowrap; }
+  .react[aria-pressed="true"] { border-color: var(--accent); background: var(--chip); }
+  .react:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .picker { display: flex; flex-direction: column; gap: 4px; padding: 4px; max-width: 280px; }
+  .picker .emotes { display: flex; gap: 2px; }
+  .picker .emotes button { all: unset; cursor: pointer; font-size: 20px; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; }
+  .picker .emotes button:hover:not(:disabled), .picker .emotes button:focus-visible { background: var(--track); }
+  .picker .emotes button.locked { cursor: default; filter: grayscale(1); opacity: .35; }
+  .who-list { display: flex; flex-direction: column; gap: 6px; padding: 4px 4px 8px; border-bottom: 1px solid var(--line); }
+  .who-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .who-row span { white-space: normal; }
   .announce { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--chip); color: var(--text); }
   .empty { color: var(--muted); padding: 24px 0; text-align: center; }
   .error { color: #b3261e; }
@@ -598,7 +712,7 @@ PAGE = r"""
           <th data-sort="reviews" title="Answers given in this range"><button>Reviews</button></th>
           <th data-sort="minutes" title="Time spent answering"><button>Minutes</button></th>
           <th data-sort="secPerCard" title="Average seconds per answer"><button>Sec/card</button></th>
-          <th data-sort="streak" title="Days in a row with at least one review"><button>Streak</button></th>
+          <th data-sort="streak" id="streak-th" title="Longest streak that ended in this range, including its days before the range"><button>Best streak</button></th>
           <th data-sort="past31" title="Reviews in the last 31 days, whatever the range"><button>Past 31 days</button></th>
           <th data-sort="retention" title="Share of answers that weren't Again"><button>Retention</button></th>
           <th data-sort="added" title="Cards created in this range"><button>Added</button></th>
@@ -678,6 +792,7 @@ PAGE = r"""
 
   <div class="pop" id="cal" role="dialog" aria-label="Choose a date" hidden></div>
   <div class="pop menu" id="menu" role="menu" hidden></div>
+  <div class="pop picker" id="picker" role="dialog" aria-label="React" hidden></div>
 </div>
 <script>
 const lb = (() => {
@@ -717,12 +832,20 @@ const lb = (() => {
     { key: "reviews", label: "Reviews", short: "Reviews" },
     { key: "minutes", label: "Minutes", short: "Minutes" },
     { key: "secPerCard", label: "Seconds per card (fastest)", short: "Sec/card" },
-    { key: "streak", label: "Streak", short: "Streak" },
+    { key: "streak", label: "Best streak", short: "Best streak" },
     { key: "past31", label: "Past 31 days", short: "Past 31 days" },
     { key: "retention", label: "Retention", short: "Retention" },
     { key: "added", label: "Cards added", short: "Added" },
   ];
   const MEDAL = ["gold", "silver", "bronze"];
+  // Emotes unlock with reviews done today (the same ladder as window.py).
+  const EMOTES = [["🤓", 25], ["🫵", 50], ["🗿", 100], ["🐌", 250], ["🧠", 500], ["💀", 1000], ["💥", 2000], ["🌱", 3000]];
+  const EMOJI = EMOTES.map((x) => x[0]);
+  const unlockAt = (e) => (EMOTES.find((x) => x[0] === e) || [e, Infinity])[1];
+  const unlocked = (e) => (view.todayReviews || 0) >= unlockAt(e);
+  const lockedNote = (e) => "Unlocks at " + fmt(unlockAt(e)) + " reviews today (you're at " + fmt(view.todayReviews || 0) + ")";
+  let reactions = [];
+  let pickerFor = null;
 
   // ---- values, sorting, medals, gaps --------------------------------------
 
@@ -769,13 +892,178 @@ const lb = (() => {
     return el;
   }
 
-  function nameCell(row, medals, sortState, medalKey, what) {
-    const cell = td(row.id === view.me ? row.name + " (you)" : row.name, "name l");
+  function nameCell(row, medals, sortState, medalKey, what, reacts) {
+    const cell = td("", "name l");
+    const box = document.createElement("div");
+    box.className = "namebox";
+    const line = document.createElement("div");
+    line.className = "line";
+    const nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = row.id === view.me ? row.name + " (you)" : row.name;
+    line.append(nm);
     const k = medals[row.id];
     const big = sortState.key === medalKey && sortState.dir === "desc";
-    if (k !== undefined && !big) cell.append(badge(k, true, what));
+    if (k !== undefined && !big) line.append(badge(k, true, what));
+    box.append(line);
+    cell.append(box);
     return cell;
   }
+
+  // ---- reactions -------------------------------------------------------------
+  // A reaction is a post {to, day, e}: an emoji on someone's day. A range shows
+  // the reactions given on days inside it; clicking adds yours for today, or
+  // takes back one you gave in the range.
+
+  function inRange(r) {
+    return view.range.key === "all" || (r.day >= view.range.from && r.day <= view.range.to);
+  }
+
+  function reactionGroups(pid) {
+    const groups = [];
+    reactions.filter((r) => r.to === pid && inRange(r)).forEach((r) => {
+      let g = groups.find((x) => x.e === r.e);
+      if (!g) groups.push((g = { e: r.e, names: [], mine: null }));
+      g.names.push(r.player === view.me ? "You" : r.name);
+      if (r.player === view.me) g.mine = r;
+    });
+    return groups.sort((a, b) => EMOJI.indexOf(a.e) - EMOJI.indexOf(b.e));
+  }
+
+  function reactionChips(p) {
+    return reactionGroups(p.id).map((g) => {
+      const b = document.createElement("button");
+      b.className = "react";
+      b.textContent = g.e + " " + g.names.length;
+      b.title = g.names.join(", ") + (!g.mine && !unlocked(g.e) ? " · " + lockedNote(g.e) : "");
+      b.setAttribute("aria-pressed", String(!!g.mine));
+      b.setAttribute("aria-label", g.e + " from " + g.names.join(", "));
+      b.addEventListener("click", (ev) => { ev.stopPropagation(); toggleReaction(p.id, g.e); });
+      return b;
+    });
+  }
+
+  const SMILEY = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="13" r="8"/><path d="M8 15s1 1.5 3 1.5 3-1.5 3-1.5"/><path d="M8.5 10.5h.01M13.5 10.5h.01"/><path d="M19 2v6M16 5h6"/></svg>';
+
+  // One pill per row, pinned on the row's bottom edge like a reaction on a chat
+  // message. It floats above the table, so it never changes any spacing.
+  // Clicking it lists every reaction and opens the emote row.
+  const GRASS_AT = 3000;
+
+  function grassMark(p) {
+    if ((p.today || 0) < GRASS_AT) return null;
+    const m = document.createElement("span");
+    m.className = "rbadge grass";
+    m.textContent = "🌱";
+    m.title = fmt(p.today) + " reviews today";
+    m.setAttribute("role", "img");
+    m.setAttribute("aria-label", fmt(p.today) + " reviews today");
+    return m;
+  }
+
+  function reactionBadge(p) {
+    const groups = reactionGroups(p.id);
+    if (!groups.length && p.id === view.me) return null;
+    const b = document.createElement("button");
+    b.className = "rbadge" + (groups.length ? "" : " ghost");
+    b.setAttribute("aria-haspopup", "dialog");
+    b.setAttribute("aria-expanded", String(pickerFor === p.id));
+    if (groups.length) {
+      const total = groups.reduce((n, g) => n + g.names.length, 0);
+      const top = groups.slice().sort((x, y) => y.names.length - x.names.length).slice(0, 3);
+      b.setAttribute("aria-pressed", String(groups.some((g) => g.mine)));
+      b.setAttribute("aria-label", total + (total === 1 ? " reaction" : " reactions") + " for " + p.name);
+      b.title = groups.map((g) => g.e + " " + g.names.join(", ")).join("\n");
+      const em = document.createElement("span");
+      em.className = "em";
+      em.textContent = top.map((g) => g.e).join("");
+      b.append(em);
+      if (total > 1) {
+        const n = document.createElement("span");
+        n.textContent = total;
+        b.append(n);
+      }
+    } else {
+      b.setAttribute("aria-label", "React to " + p.name);
+      b.title = "React";
+      b.innerHTML = SMILEY;
+    }
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); openPicker(b, p); });
+    return b;
+  }
+
+  function openPicker(anchor, p) {
+    const picker = $("picker");
+    if (!picker.hidden && pickerFor === p.id) { closePops(); return; }
+    closePops();
+    picker.replaceChildren();
+    {
+      const groups = reactionGroups(p.id);
+      if (groups.length) {
+        const list = document.createElement("div");
+        list.className = "who-list";
+        groups.forEach((g, i) => {
+          const row = document.createElement("div");
+          row.className = "who-row";
+          const who = document.createElement("span");
+          who.textContent = g.names.join(", ");
+          row.append(reactionChips(p)[i], who);
+          list.append(row);
+        });
+        picker.append(list);
+      }
+    }
+    const emotes = document.createElement("div");
+    emotes.className = "emotes";
+    picker.append(emotes);
+    EMOJI.forEach((e) => {
+      const b = document.createElement("button");
+      b.textContent = e;
+      if (unlocked(e)) {
+        b.setAttribute("aria-label", e);
+        b.addEventListener("click", (ev) => { ev.stopPropagation(); closePops(); toggleReaction(p.id, e); });
+      } else {
+        b.className = "locked";
+        b.disabled = true;
+        b.title = lockedNote(e);
+        b.setAttribute("aria-label", e + ". " + lockedNote(e));
+      }
+      emotes.append(b);
+    });
+    if (p.id === view.me) emotes.remove();
+    pickerFor = p.id;
+    anchor.setAttribute("aria-expanded", "true");
+    place(picker, anchor);
+    const first = picker.querySelector(".emotes button:not(:disabled)") || picker.querySelector("button:not(:disabled)");
+    if (first) first.focus();
+  }
+
+  function toggleReaction(to, e) {
+    const mine = reactions.find((r) => r.to === to && r.e === e && r.player === view.me && inRange(r));
+    if (!mine && !unlocked(e)) return;
+    if (mine) {
+      reactions = reactions.filter((r) => r !== mine);
+      pycmd("unreact:" + mine.id);
+    } else {
+      const me = view.people.find((x) => x.id === view.me);
+      const r = { id: "tmp" + Date.now(), player: view.me, name: me ? me.name : "", to, day: view.range.today, e };
+      reactions.push(r);
+      pycmd("react:" + JSON.stringify({ to, day: r.day, e }));
+    }
+    const keep = !$("picker").hidden ? pickerFor : null;
+    drawBoard();
+    if (keep) {
+      const anchor = document.querySelector('#board-rows tr[data-id="' + keep + '"] .rbadge');
+      const person = view.people.find((x) => x.id === keep);
+      if (anchor && person) { pickerFor = null; openPicker(anchor, person); }
+    }
+  }
+
+  function setReactions(list) {
+    reactions = Array.isArray(list) ? list : [];
+    if (view) drawBoard();
+  }
+
 
   function rankCell(row, i, medals, sortState, medalKey, what) {
     const cell = td("", "rank l");
@@ -835,11 +1123,22 @@ const lb = (() => {
         tr.title = chart.compare === p.id ? "Stop comparing" : "Compare with " + p.name;
         tr.addEventListener("click", () => toggleCompare(p.id));
       }
+      tr.dataset.id = p.id;
       tr.append(
         rankCell(p, i, medals, st, "reviews", "reviews"),
         nameCell(p, medals, st, "reviews", "reviews"),
         ...cols.map((c) => td(cellText(p, c), st.key === c ? "main" : "")),
       );
+      // Raised at the top right of the name, like an exponent, so it never
+      // changes any spacing: reactions when they're on, else a 🌱 for anyone
+      // past 3,000 reviews today (go touch grass).
+      const mark = view.reactionsOn ? reactionBadge(p) : grassMark(p);
+      if (mark) {
+        const line = tr.children[1].querySelector(".line");
+        line.classList.add("anchor");
+        tr.children[1].classList.add("anchor");
+        line.append(mark);
+      }
       body.append(tr);
     });
     markHeaders("board");
@@ -1407,6 +1706,8 @@ const lb = (() => {
     $("refresh").classList.remove("spinning");
     const first = view === null;
     view = v;
+    reactions = Array.isArray(v.reactions) ? v.reactions : reactions;
+
     if (first) applyPrefs(v.prefs || {}, v.pinned ? v.pinnedMetric : null);
     if (updateState.state !== "installing") setUpdate(v.update);
     $("status").classList.remove("error");
@@ -1629,7 +1930,9 @@ const lb = (() => {
   function closePops() {
     $("cal").hidden = true;
     $("menu").hidden = true;
-    document.querySelectorAll("[aria-haspopup=menu]").forEach((b) => b.setAttribute("aria-expanded", "false"));
+    $("picker").hidden = true;
+    pickerFor = null;
+    document.querySelectorAll("[aria-haspopup=menu], [aria-haspopup=dialog]").forEach((b) => b.setAttribute("aria-expanded", "false"));
     calField = null;
     menuAnchor = null;
   }
@@ -1699,7 +2002,17 @@ const lb = (() => {
   document.addEventListener("mousedown", (e) => {
     const inside = (id) => $(id).contains(e.target);
     const onAnchor = menuAnchor && menuAnchor.contains(e.target);
-    if (!inside("cal") && !inside("menu") && e.target !== $("from") && e.target !== $("to") && !onAnchor) closePops();
+    const onPicker = inside("picker") || (e.target.closest && e.target.closest(".rbadge"));
+    if (!inside("cal") && !inside("menu") && !onPicker && e.target !== $("from") && e.target !== $("to") && !onAnchor) closePops();
+  });
+  $("picker").addEventListener("keydown", (e) => {
+    const items = [...$("picker").querySelectorAll("button")];
+    const i = items.indexOf(document.activeElement);
+    if (e.key === "Escape") { closePops(); drawBoard(); }
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      items[(i + (e.key === "ArrowRight" ? 1 : -1) + items.length) % items.length].focus();
+    }
   });
   ["cal", "menu"].forEach((id) => $(id).addEventListener("keydown", (e) => {
     if (e.key === "Escape") { const back = calField ? $(calField) : menuAnchor; closePops(); if (back) back.focus(); }
@@ -1733,7 +2046,7 @@ const lb = (() => {
     resizeTimer = setTimeout(() => view && currentTab === "board" && drawChart(), 100);
   });
 
-  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable, openMenu, openShow, openHighlight, openChartType, endCompare, setUpdate, clickUpdate };
+  return { render, loading, error, tab, sortBy, applyCustom, togglePin, toggleChartTable, openMenu, openShow, openHighlight, openChartType, endCompare, setUpdate, clickUpdate, setReactions };
 })();
 </script>
 """

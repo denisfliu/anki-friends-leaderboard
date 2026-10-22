@@ -64,6 +64,12 @@ def anki_today(col) -> datetime.date:
     return datetime.datetime.fromtimestamp(col.sched.day_cutoff - 86400).date()
 
 
+def today_reviews(col) -> int:
+    """Answers given since today began (Anki's day boundary), for emote unlocks."""
+    since_ms = (col.sched.day_cutoff - 86400) * 1000
+    return ReadOnly(col).scalar("select count() from revlog where ease > 0 and id >= ?", since_ms) or 0
+
+
 def change_marker(col) -> str:
     """Changes when a review is done or a card is added or deleted, so the
     add-on knows whether there's anything new to upload."""

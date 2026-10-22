@@ -18,7 +18,12 @@ SUMMED = ("reviews", "seconds", "again") + BREAKDOWN
 
 
 def standings(board: dict, today: datetime.date, start=None, end=None) -> dict:
-    """Stats per person for start..end (inclusive dates); None means all time."""
+    """Stats per person for start..end (inclusive dates); None means all time.
+
+    Streak is the longest streak that ended inside the range, counted in full
+    (days before the range included). A streak still going ends on its last
+    study day. All time is each person's longest streak ever.
+    """
     players = board.get("players", [])
     daily = _daily_by_player(board)
     past31 = today - 30 * DAY
@@ -38,8 +43,9 @@ def standings(board: dict, today: datetime.date, start=None, end=None) -> dict:
                 "minutes": round(totals["seconds"] / 60, 1),
                 "retention": _retention(totals),
                 "secPerCard": _sec_per_card(totals),
-                "streak": _streak(p, today),
+                "streak": _range_streak(p, days, today, start, end),
                 "past31": int(_sum(days, past31, today)["reviews"]),
+                "today": int(_sum(days, today, today)["reviews"]),
                 **{k: int(totals[k]) for k in BREAKDOWN},
                 # Add-ons before 0.6.0 don't send the breakdown or cards added,
                 # so their zeros mean "unknown", not zero.
@@ -209,6 +215,25 @@ def _retention(totals) -> float:
 def _sec_per_card(totals) -> float:
     reviews = totals["reviews"]
     return round(totals["seconds"] / reviews, 1) if reviews else 0.0
+
+
+def _range_streak(p, days, today, start, end) -> int:
+    if start is None:
+        return max(int(_num(p.get("longestStreak"))), _streak(p, today))
+    end = end or today
+    studied = sorted(d for d, row in days.items() if _num(row.get("reviews")) > 0)
+    best = run = 0
+    for i, date in enumerate(studied):
+        run = run + 1 if i and date == studied[i - 1] + DAY else 1
+        last = i == len(studied) - 1 or studied[i + 1] != date + DAY
+        if last and start <= date <= end:
+            length = run
+            if date >= today - DAY:
+                # The streak still going; the uploaded count also covers days
+                # older than the downloaded rows.
+                length = max(run, _streak(p, today))
+            best = max(best, length)
+    return best
 
 
 def _streak(p, today) -> int:

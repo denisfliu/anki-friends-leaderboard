@@ -21,7 +21,7 @@ METRIC_LABELS = {
     "reviews": "Reviews",
     "minutes": "Minutes",
     "secPerCard": "Sec/card",
-    "streak": "Streak",
+    "streak": "Best streak",
     "past31": "Past 31 days",
     "retention": "Retention",
     "added": "Added",
@@ -198,7 +198,8 @@ def _maybe_check(cfg) -> None:
     today = stats.anki_today(mw.col)
     rng = list(cfg.get("home_range") or ["today", None, None]) + [None, None]
     settings = (cache or {}).get("board", {}).get("settings") or {}
-    need = window.needed_since(today, settings, tuple(rng[:3]))
+    players = (cache or {}).get("board", {}).get("players")
+    need = window.needed_since(today, settings, tuple(rng[:3]), players)
     before = (cache or {}).get("lastWrite")
     had_board = bool(cache)
 
