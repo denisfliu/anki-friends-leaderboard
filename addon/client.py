@@ -28,6 +28,7 @@ ERRORS = {
     "last_admin": "The leaderboard needs at least one admin.",
     "timeout": "The server took too long to answer. Please try again.",
     "offline": "Anki couldn't reach the server. Please check your internet connection.",
+    "lost": "Server error. Please try again.",
 }
 
 
@@ -65,8 +66,13 @@ def call(url: str, payload: dict, timeout=None, retries=None) -> dict:
         try:
             return _call_once(url, payload, timeout)
         except ServerError as e:
-            if e.code != "busy" or attempt == retries:
+            if e.code not in ("busy", "lost") or attempt == retries:
                 raise
+            if e.code == "lost":
+                # The request already ran, so wait out the server's gap
+                # between uploads before sending it again.
+                time.sleep(6)
+                continue
         except requests.Timeout:
             if attempt == retries:
                 raise ServerError("timeout")
@@ -93,6 +99,12 @@ def _call_once(url: str, payload: dict, timeout: float) -> dict:
             "The server didn't send back leaderboard data. Check that server_url"
             " is the web app URL and that the deployment allows access by Anyone."
         )
+    if "service" in body:
+        # Apps Script ran the request and redirected to its answer, but the
+        # answer link sometimes bounces back to the web app's own address.
+        # Following that runs doGet, whose reply is the only one with
+        # "service", and the real answer is gone.
+        raise ServerError("lost")
     if not body.get("ok"):
         raise ServerError(body.get("error", "unknown error"), body.get("detail", ""))
     return body
